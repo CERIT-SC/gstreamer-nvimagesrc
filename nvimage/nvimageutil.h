@@ -22,6 +22,8 @@
 
 #include <stdio.h>
 
+#include <gmodule.h>
+
 #include <gst/gst.h>
 
 #include <X11/Xlib.h>
@@ -129,6 +131,8 @@ struct _GstXContext {
 
   FILE *out;
 };
+
+gboolean nvimage_load_libraries(void);
 
 GstXContext *nvimageutil_xcontext_get_r (GstElement *parent, const gchar *display_name);
 void nvimageutil_xcontext_clear_r (GstXContext *xcontext);

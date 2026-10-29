@@ -109,6 +109,14 @@ gst_nvimage_src_start (GstBaseSrc * basesrc)
 
         s->last_frame_no = -1;
         s->frame = 0;
+
+        if (!nvimage_load_libraries ()) {
+                GST_ELEMENT_ERROR (s, LIBRARY, INIT,
+                                   ("NVIDIA driver libraries not found"),
+                                   ("Could not load libnvidia-fbc.so.1 / libnvidia-encode.so.1"));
+                return FALSE;
+        }
+
         return gst_nvimage_src_open_display (s, s->display_name);
 }
 

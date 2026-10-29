@@ -26,6 +26,10 @@
 #include <stdio.h>
 #include <unistd.h>
 
+typedef NVENCSTATUS (NVENCAPI *PNVENCODEAPICREATEINSTANCE) (NV_ENCODE_API_FUNCTION_LIST *functionList);
+static PNVFBCCREATEINSTANCE nvFBCCreateInstance_fn = NULL;
+static PNVENCODEAPICREATEINSTANCE nvEncodeAPICreateInstance_fn = NULL;
+
 static gboolean nvimageutil_fbccontext_get(GstXContext *xcontext);
 static gboolean nvimageutil_fbccontext_clear(GstXContext *xcontext);
 static gboolean nvimageutil_xcontext_get (GstXContext *xcontext, GstElement * parent, const gchar * display_name);
@@ -71,6 +75,44 @@ gst_meta_nvimage_get_info (void)
                 g_once_init_leave (&meta_nvimage_info, meta);
         }
         return meta_nvimage_info;
+}
+
+gboolean
+nvimage_load_libraries (void)
+{
+        static gboolean loaded = FALSE;
+        GModule *fbc_module;
+        GModule *enc_module;
+
+        if (loaded)
+                return TRUE;
+
+        fbc_module = g_module_open ("libnvidia-fbc.so.1", G_MODULE_BIND_LAZY);
+        if (fbc_module == NULL) {
+                GST_WARNING ("Could not open libnvidia-fbc.so.1: %s", g_module_error ());
+                return FALSE;
+        }
+
+        if (!g_module_symbol (fbc_module, "NvFBCCreateInstance",
+                              (gpointer *) &nvFBCCreateInstance_fn)) {
+                GST_ERROR ("NvFBCCreateInstance not found: %s", g_module_error ());
+                return FALSE;
+        }
+
+        enc_module = g_module_open ("libnvidia-encode.so.1", G_MODULE_BIND_LAZY);
+        if (enc_module == NULL) {
+                GST_WARNING ("Could not open libnvidia-encode.so.1: %s", g_module_error ());
+                return FALSE;
+        }
+
+        if (!g_module_symbol (enc_module, "NvEncodeAPICreateInstance",
+                              (gpointer *) &nvEncodeAPICreateInstance_fn)) {
+                GST_ERROR ("NvEncodeAPICreateInstance not found: %s", g_module_error ());
+                return FALSE;
+        }
+
+        loaded = TRUE;
+        return TRUE;
 }
 
 static void*
@@ -345,7 +387,7 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
         xcontext->pFn.dwVersion = NVFBC_VERSION;
 
-        fbcStatus = NvFBCCreateInstance(&xcontext->pFn);
+        fbcStatus = nvFBCCreateInstance_fn(&xcontext->pFn);
         if (fbcStatus != NVFBC_SUCCESS) {
                 g_error ("Cannot create FBC instance %d", fbcStatus);
                 return FALSE;
@@ -408,7 +450,7 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
         xcontext->pEncFn.version = NV_ENCODE_API_FUNCTION_LIST_VER;
 
-        encStatus = NvEncodeAPICreateInstance(&xcontext->pEncFn);
+        encStatus = nvEncodeAPICreateInstance_fn(&xcontext->pEncFn);
         if (encStatus != NV_ENC_SUCCESS) {
                 g_error ("Cannot create NVENC instance %d", encStatus);
                 return FALSE;
