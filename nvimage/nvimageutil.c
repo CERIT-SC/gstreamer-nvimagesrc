@@ -432,9 +432,10 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
         presetConfig.version = NV_ENC_PRESET_CONFIG_VER;
         presetConfig.presetCfg.version = NV_ENC_CONFIG_VER;
-        encStatus = xcontext->pEncFn.nvEncGetEncodePresetConfig(xcontext->encoder,
+        encStatus = xcontext->pEncFn.nvEncGetEncodePresetConfigEx(xcontext->encoder,
                                                   encodeGuid,
-                                                  NV_ENC_PRESET_LOW_LATENCY_HQ_GUID,
+                                                  NV_ENC_PRESET_P4_GUID,
+                                                  NV_ENC_TUNING_INFO_LOW_LATENCY,
                                                   &presetConfig);
         if (encStatus != NV_ENC_SUCCESS) {
                 g_error ("Cannot get NVENC preset config %d", encStatus);
@@ -444,7 +445,9 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
         presetConfig.presetCfg.rcParams.averageBitRate   = xcontext->bitrate;
         presetConfig.presetCfg.rcParams.maxBitRate       = xcontext->bitrate;
         presetConfig.presetCfg.rcParams.vbvBufferSize    = 0;
-        presetConfig.presetCfg.rcParams.rateControlMode  = NV_ENC_PARAMS_RC_CBR_LOWDELAY_HQ;
+        presetConfig.presetCfg.rcParams.rateControlMode       = NV_ENC_PARAMS_RC_CBR;
+        presetConfig.presetCfg.rcParams.multiPass             = NV_ENC_TWO_PASS_QUARTER_RESOLUTION;
+        presetConfig.presetCfg.rcParams.lowDelayKeyFrameScale = 1;
         presetConfig.presetCfg.rcParams.zeroReorderDelay = 1;
         presetConfig.presetCfg.profileGUID               = NV_ENC_H264_PROFILE_HIGH_GUID;
         presetConfig.presetCfg.encodeCodecConfig.h264Config.repeatSPSPPS           = 0;
@@ -458,7 +461,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 	memset(&initParams, 0, sizeof(initParams));
         initParams.version = NV_ENC_INITIALIZE_PARAMS_VER;
         initParams.encodeGUID = encodeGuid;
-        initParams.presetGUID = NV_ENC_PRESET_LOW_LATENCY_HQ_GUID;
+        initParams.presetGUID = NV_ENC_PRESET_P4_GUID;
+        initParams.tuningInfo = NV_ENC_TUNING_INFO_LOW_LATENCY;
         initParams.encodeConfig = &presetConfig.presetCfg;
         initParams.encodeWidth = frameSize.w;
         initParams.encodeHeight = frameSize.h;
