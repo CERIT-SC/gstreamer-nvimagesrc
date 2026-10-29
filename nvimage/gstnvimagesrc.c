@@ -235,7 +235,7 @@ gst_nvimage_src_create (GstPushSrc * bs, GstBuffer ** buf)
 
         gst_base_src_negotiate (GST_BASE_SRC (s));
 
-        image = gst_nvimageutil_nvimage_new_r(s->xcontext, GST_ELEMENT(s), 
+        image = gst_nvimageutil_nvimage_new_r(s->xcontext, GST_ELEMENT(s), s->codec,
                                             s->fps_n, s->fps_d, s->bitrate, s->show_pointer, _keyframe, 
                                             next_frame_no, next_capture_ts);
 
@@ -483,6 +483,7 @@ gst_nvimage_src_init (GstNVimageSrc * nvimagesrc)
         gst_base_src_set_format (GST_BASE_SRC (nvimagesrc), GST_FORMAT_TIME);
         gst_base_src_set_live (GST_BASE_SRC (nvimagesrc), TRUE);
 
+        nvimagesrc->codec = GST_NVIMAGE_CODEC_H264;
         nvimagesrc->show_pointer = TRUE;
         nvimagesrc->bitrate = 2000000;
         nvimagesrc->keyframe = TRUE;

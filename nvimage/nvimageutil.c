@@ -34,7 +34,8 @@ static gboolean nvimageutil_fbccontext_get(GstXContext *xcontext);
 static gboolean nvimageutil_fbccontext_clear(GstXContext *xcontext);
 static gboolean nvimageutil_xcontext_get (GstXContext *xcontext, GstElement * parent, const gchar * display_name);
 static void nvimageutil_xcontext_clear (GstXContext * xcontext);
-static GstBuffer * gst_nvimageutil_nvimage_new (GstXContext * xcontext, GstElement * parent, guint fps_n, guint fps_d, gint bitrate, gboolean show_pointer, gint forcekeyframe, gint64 frame, gint64 ts);
+static GstBuffer * gst_nvimageutil_nvimage_new (GstXContext * xcontext, GstElement * parent, GstNVimageCodec codec,
+        guint fps_n, guint fps_d, gint bitrate, gboolean show_pointer, gint forcekeyframe, gint64 frame, gint64 ts);
 
 GType
 gst_meta_nvimage_api_get_type (void)
@@ -150,6 +151,7 @@ worker_thread(void *arg) {
                                 return NULL;
                         case 3:
                                 buf = gst_nvimageutil_nvimage_new(xcontext, xcontext->funcdata.args[0].parent,
+                                                                        xcontext->funcdata.args[8].codec,
                                                                         xcontext->funcdata.args[1].fps_n, xcontext->funcdata.args[2].fps_d,
                                                                         xcontext->funcdata.args[3].bitrate, xcontext->funcdata.args[4].show_pointer,
                                                                         xcontext->funcdata.args[5].forcekeyframe,
@@ -228,7 +230,9 @@ nvimageutil_xcontext_clear_r (GstXContext * xcontext)
 }
 
 GstBuffer *
-gst_nvimageutil_nvimage_new_r (GstXContext * xcontext, GstElement * parent, guint fps_n, guint fps_d, gint bitrate, gboolean show_pointer, gint forcekeyframe, gint64 frame, gint64 ts) {
+gst_nvimageutil_nvimage_new_r (GstXContext * xcontext, GstElement * parent, GstNVimageCodec codec,
+        guint fps_n, guint fps_d, gint bitrate, gboolean show_pointer, gint forcekeyframe, gint64 frame, gint64 ts)
+{
         GstBuffer *ret;
         memset(&xcontext->funcdata, 0, sizeof(GstXThreadCall));
         pthread_mutex_lock(&xcontext->mutex_in);
@@ -241,6 +245,7 @@ gst_nvimageutil_nvimage_new_r (GstXContext * xcontext, GstElement * parent, guin
         xcontext->funcdata.args[5].forcekeyframe = forcekeyframe;
         xcontext->funcdata.args[6].frame = frame;
         xcontext->funcdata.args[7].ts = ts;
+        xcontext->funcdata.args[8].codec = codec;
         xcontext->funcdata.retvalid = 0;
         xcontext->funcdata.inputvalid = 1;
         pthread_mutex_unlock(&xcontext->mutex_in);
@@ -339,6 +344,7 @@ nvimageutil_xcontext_get (GstXContext *xcontext, GstElement * parent, const gcha
 
         XFree(fbconfigs);
 
+        xcontext->codec = GST_NVIMAGE_CODEC_H264;
         xcontext->fps_n = 30;
         xcontext->fps_d = 1;
         xcontext->bitrate = 2000000;
@@ -581,27 +587,31 @@ nvimageutil_fbccontext_clear(GstXContext *xcontext) {
         NVFBCSTATUS                          fbcStatus;
         NVENCSTATUS                          encStatus;
 
-        if (xcontext->outputBuffer != NULL) {
-                encStatus = xcontext->pEncFn.nvEncDestroyBitstreamBuffer(xcontext->encoder, xcontext->outputBuffer);
-                if (encStatus != NV_ENC_SUCCESS) {
-                        g_error("Cannot destroy bitstream buffer %d", encStatus);
-                        return FALSE;
-                }
-        }
-        for (gint i = 0; i < NVFBC_TOGL_TEXTURES_MAX; i++) {
-                if (xcontext->registeredResources[i]) {
-                        encStatus = xcontext->pEncFn.nvEncUnregisterResource(xcontext->encoder, xcontext->registeredResources[i]);
+        if (xcontext->encoder) {
+                if (xcontext->outputBuffer != NULL) {
+                        encStatus = xcontext->pEncFn.nvEncDestroyBitstreamBuffer(xcontext->encoder,
+                                xcontext->outputBuffer);
                         if (encStatus != NV_ENC_SUCCESS) {
-                                g_error("Cannot unregister resource %d", encStatus);
+                                g_error("Cannot destroy bitstream buffer %d", encStatus);
                                 return FALSE;
                         }
-                        xcontext->registeredResources[i] = NULL;
                 }
-        }
-        encStatus = xcontext->pEncFn.nvEncDestroyEncoder(xcontext->encoder);
-        if (encStatus != NV_ENC_SUCCESS) {
-                g_error("Cannot destroy encoder %d", encStatus);
-                return FALSE;
+                for (gint i = 0; i < NVFBC_TOGL_TEXTURES_MAX; i++) {
+                        if (xcontext->registeredResources[i]) {
+                                encStatus = xcontext->pEncFn.nvEncUnregisterResource(xcontext->encoder,
+                                        xcontext->registeredResources[i]);
+                                if (encStatus != NV_ENC_SUCCESS) {
+                                        g_error("Cannot unregister resource %d", encStatus);
+                                        return FALSE;
+                                }
+                                xcontext->registeredResources[i] = NULL;
+                        }
+                }
+                encStatus = xcontext->pEncFn.nvEncDestroyEncoder(xcontext->encoder);
+                if (encStatus != NV_ENC_SUCCESS) {
+                        g_error("Cannot destroy encoder %d", encStatus);
+                        return FALSE;
+                }
         }
 
         memset(&destroyCaptureParams, 0, sizeof(destroyCaptureParams));
@@ -626,7 +636,9 @@ nvimageutil_fbccontext_clear(GstXContext *xcontext) {
         memset(&xcontext->pFn, 0, sizeof(xcontext->pFn));
         xcontext->fbcHandle = 0;
         memset(&xcontext->pEncFn, 0, sizeof(xcontext->pEncFn));
-        xcontext->encoder = 0;
+        xcontext->encoder = NULL;
+        xcontext->outputBuffer = NULL;
+        xcontext->sysBuffer = NULL;
         memset(&xcontext->mapParams, 0, sizeof(xcontext->mapParams));
         memset(&xcontext->encParams, 0, sizeof(xcontext->encParams));
         memset(&xcontext->setupParams, 0, sizeof(xcontext->setupParams));
@@ -659,7 +671,9 @@ gst_nvimagesrc_buffer_dispose (GstBuffer * nvimage)
 
 /* This function handles GstNVimageSrcBuffer creation depending on XShm availability */
 static GstBuffer *
-gst_nvimageutil_nvimage_new (GstXContext * xcontext, GstElement * parent, guint fps_n, guint fps_d, gint bitrate, gboolean show_pointer, gint forcekeyframe, gint64 frame, gint64 ts) {
+gst_nvimageutil_nvimage_new (GstXContext * xcontext, GstElement * parent, GstNVimageCodec codec,
+        guint fps_n, guint fps_d, gint bitrate, gboolean show_pointer, gint forcekeyframe, gint64 frame, gint64 ts)
+{
         GstBuffer                    *nvimage = NULL;
         GstMetaNVimage               *meta;
         NVFBC_TOGL_GRAB_FRAME_PARAMS grabParams;
@@ -668,16 +682,19 @@ gst_nvimageutil_nvimage_new (GstXContext * xcontext, GstElement * parent, guint 
         NV_ENC_LOCK_BITSTREAM        lockParams;
         gint                         i=0;
 
-        if (xcontext->fps_n != fps_n ||
+        if (xcontext->codec != codec ||
+            xcontext->fps_n != fps_n ||
             xcontext->fps_d != fps_d ||
             xcontext->bitrate != bitrate ||
 	    forcekeyframe ||
             xcontext->show_pointer != show_pointer) {
+                xcontext->codec = codec;
                 xcontext->fps_n = fps_n;
                 xcontext->fps_d = fps_d;
                 xcontext->bitrate = bitrate;
                 xcontext->show_pointer = show_pointer;
-                g_warning ("Recreating FBCNVENC pipeline, parametres change: bitrate: %d, showpointer %d, fps: %f", bitrate, show_pointer, ((double)fps_n)/fps_d);
+                g_warning ("Recreating FBCNVENC pipeline, parametres change: codec: %d, bitrate: %d, showpointer %d, "
+                           "fps: %f", codec, bitrate, show_pointer, ((double)fps_n)/fps_d);
                 if(!nvimageutil_fbccontext_clear(xcontext)) {
                         g_error("Cannot clear context. Flow error.");
                         return NULL;

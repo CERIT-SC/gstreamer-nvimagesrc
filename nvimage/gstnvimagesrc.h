@@ -49,6 +49,8 @@ struct _GstNVimageSrc
 
   gchar *display_name;
 
+  GstNVimageCodec codec;
+
   /* Desired output framerate */
   gint fps_n;
   gint fps_d;
