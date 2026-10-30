@@ -39,7 +39,14 @@
 
 G_BEGIN_DECLS
 
-typedef enum { GST_NVIMAGE_CODEC_H264, GST_NVIMAGE_CODEC_H265, GST_NVIMAGE_CODEC_RAW } GstNVimageCodec;
+typedef enum
+{
+  GST_NVIMAGE_CODEC_H264,
+  GST_NVIMAGE_CODEC_H265,
+  GST_NVIMAGE_CODEC_AV1,
+  GST_NVIMAGE_CODEC_RAW
+} GstNVimageCodec;
+
 typedef struct _GstXContext GstXContext;
 typedef struct _GstNVimage GstNVimage;
 typedef struct _GstMetaNVimage GstMetaNVimage;

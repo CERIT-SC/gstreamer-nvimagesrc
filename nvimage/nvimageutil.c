@@ -403,6 +403,22 @@ nvimageutil_config_h265 (NV_ENC_CONFIG *cfg)
         hevc->idrPeriod = 0;
 }
 
+static void
+nvimageutil_config_av1 (NV_ENC_CONFIG *cfg)
+{
+        NV_ENC_CONFIG_AV1 *av1 = &cfg->encodeCodecConfig.av1Config;
+
+        cfg->profileGUID = NV_ENC_AV1_PROFILE_MAIN_GUID;
+        av1->outputAnnexBFormat = 0;
+        av1->repeatSeqHdr = 1;
+        av1->chromaFormatIDC = 1;
+        av1->inputPixelBitDepthMinus8 = 0;
+        av1->pixelBitDepthMinus8 = 0;
+        av1->level = NV_ENC_LEVEL_AV1_AUTOSELECT;
+        av1->tier = NV_ENC_TIER_AV1_0;
+        av1->idrPeriod = 0;
+}
+
 static gboolean
 nvimageutil_fbccontext_get(GstXContext *xcontext)
 {
@@ -519,10 +535,17 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
                 return FALSE;
         }
 
-        if (xcontext->codec == GST_NVIMAGE_CODEC_H265)
-                encodeGuid = NV_ENC_CODEC_HEVC_GUID;
-        else
-                encodeGuid = NV_ENC_CODEC_H264_GUID;
+        switch (xcontext->codec) {
+                case GST_NVIMAGE_CODEC_AV1:
+                        encodeGuid = NV_ENC_CODEC_AV1_GUID;
+                        break;
+                case GST_NVIMAGE_CODEC_H265:
+                        encodeGuid = NV_ENC_CODEC_HEVC_GUID;
+                        break;
+                default:
+                        encodeGuid = NV_ENC_CODEC_H264_GUID;
+                        break;
+        }
 
         memset(&presetConfig, 0, sizeof(presetConfig));
 
@@ -546,10 +569,17 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
         presetConfig.presetCfg.rcParams.lowDelayKeyFrameScale = 1;
         presetConfig.presetCfg.rcParams.zeroReorderDelay = 1;
 
-        if (xcontext->codec == GST_NVIMAGE_CODEC_H265)
-                nvimageutil_config_h265 (&presetConfig.presetCfg);
-        else
-                nvimageutil_config_h264 (&presetConfig.presetCfg);
+        switch (xcontext->codec) {
+                case GST_NVIMAGE_CODEC_AV1:
+                        nvimageutil_config_av1 (&presetConfig.presetCfg);
+                        break;
+                case GST_NVIMAGE_CODEC_H265:
+                        nvimageutil_config_h265 (&presetConfig.presetCfg);
+                        break;
+                default:
+                        nvimageutil_config_h264 (&presetConfig.presetCfg);
+                        break;
+        }
 
 	presetConfig.presetCfg.gopLength 					   = NVENC_INFINITE_GOPLENGTH;
 
