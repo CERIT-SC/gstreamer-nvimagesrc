@@ -36,6 +36,7 @@ static gboolean nvimageutil_xcontext_get (GstXContext *xcontext, GstElement * pa
 static void nvimageutil_xcontext_clear (GstXContext * xcontext);
 static GstBuffer * gst_nvimageutil_nvimage_new (GstXContext * xcontext, GstElement * parent, GstNVimageCodec codec,
         guint fps_n, guint fps_d, gint bitrate, gboolean show_pointer, gint forcekeyframe, gint64 frame, gint64 ts);
+static void nvimageutil_probe_codecs (GstXContext *xcontext);
 
 GType
 gst_meta_nvimage_api_get_type (void)
@@ -229,6 +230,12 @@ nvimageutil_xcontext_clear_r (GstXContext * xcontext)
         g_free (xcontext);
 }
 
+gboolean
+nvimageutil_codec_supported (GstXContext *xcontext, GstNVimageCodec codec)
+{
+        return (xcontext->codecs & (1 << codec)) != 0;
+}
+
 GstBuffer *
 gst_nvimageutil_nvimage_new_r (GstXContext * xcontext, GstElement * parent, GstNVimageCodec codec,
         guint fps_n, guint fps_d, gint bitrate, gboolean show_pointer, gint forcekeyframe, gint64 frame, gint64 ts)
@@ -356,6 +363,8 @@ nvimageutil_xcontext_get (GstXContext *xcontext, GstElement * parent, const gcha
                 return FALSE;
         }
 
+        nvimageutil_probe_codecs (xcontext);
+
         return TRUE;
 }
 
@@ -417,6 +426,61 @@ nvimageutil_config_av1 (NV_ENC_CONFIG *cfg)
         av1->level = NV_ENC_LEVEL_AV1_AUTOSELECT;
         av1->tier = NV_ENC_TIER_AV1_0;
         av1->idrPeriod = 0;
+}
+
+static GUID
+nvimageutil_codec_guid (GstNVimageCodec codec)
+{
+        switch (codec) {
+                case GST_NVIMAGE_CODEC_AV1:
+                        return NV_ENC_CODEC_AV1_GUID;
+                case GST_NVIMAGE_CODEC_H265:
+                        return NV_ENC_CODEC_HEVC_GUID;
+                default:
+                        return NV_ENC_CODEC_H264_GUID;
+        }
+}
+
+static void
+nvimageutil_probe_codecs (GstXContext *xcontext)
+{
+        static const GstNVimageCodec nvenc_codecs[] = {
+                GST_NVIMAGE_CODEC_H264,
+                GST_NVIMAGE_CODEC_H265,
+                GST_NVIMAGE_CODEC_AV1
+        };
+        uint32_t count = 0;
+        uint32_t n = 0;
+        GUID *guids;
+
+        /* raw uses NVFBC only, no NVENC */
+        xcontext->codecs = 1 << GST_NVIMAGE_CODEC_RAW;
+
+        if (xcontext->pEncFn.nvEncGetEncodeGUIDCount (xcontext->encoder, &count) != NV_ENC_SUCCESS) {
+                GST_WARNING ("Cannot get NVENC codec count, offering raw only");
+                return;
+        }
+
+        guids = g_new0 (GUID, count);
+        if (xcontext->pEncFn.nvEncGetEncodeGUIDs (xcontext->encoder, guids, count, &n) != NV_ENC_SUCCESS) {
+                GST_WARNING ("Cannot get NVENC codec list, offering raw only");
+                n = 0;
+        }
+
+        for (guint c = 0; c < G_N_ELEMENTS (nvenc_codecs); c++) {
+                GUID guid = nvimageutil_codec_guid (nvenc_codecs[c]);
+
+                for (uint32_t i = 0; i < n; i++) {
+                        if (memcmp (&guids[i], &guid, sizeof (GUID)) == 0) {
+                                xcontext->codecs |= 1 << nvenc_codecs[c];
+                                break;
+                        }
+                }
+        }
+
+        g_free (guids);
+
+        GST_INFO ("Supported codecs mask 0x%x", xcontext->codecs);
 }
 
 static gboolean
@@ -535,17 +599,7 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
                 return FALSE;
         }
 
-        switch (xcontext->codec) {
-                case GST_NVIMAGE_CODEC_AV1:
-                        encodeGuid = NV_ENC_CODEC_AV1_GUID;
-                        break;
-                case GST_NVIMAGE_CODEC_H265:
-                        encodeGuid = NV_ENC_CODEC_HEVC_GUID;
-                        break;
-                default:
-                        encodeGuid = NV_ENC_CODEC_H264_GUID;
-                        break;
-        }
+        encodeGuid = nvimageutil_codec_guid (xcontext->codec);
 
         memset(&presetConfig, 0, sizeof(presetConfig));
 

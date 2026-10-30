@@ -109,6 +109,7 @@ struct _GstXContext {
   gint width, height;
 
   GstNVimageCodec codec;
+  guint codecs;  /* bitmask: 1 << GstNVimageCodec */
   void *sysBuffer;              /* NVFBC system-memory frame, raw mode only */
 
   guint fps_n;                  
@@ -148,6 +149,8 @@ gboolean nvimage_load_libraries(void);
 
 GstXContext *nvimageutil_xcontext_get_r (GstElement *parent, const gchar *display_name);
 void nvimageutil_xcontext_clear_r (GstXContext *xcontext);
+
+gboolean nvimageutil_codec_supported (GstXContext *xcontext, GstNVimageCodec codec);
 
 /* custom nvimagesrc buffer, copied from nvimagesink */
 

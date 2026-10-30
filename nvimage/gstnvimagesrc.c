@@ -369,39 +369,46 @@ gst_nvimage_src_get_caps (GstBaseSrc * bs, GstCaps * filter)
 
         GST_DEBUG ("width = %d, height=%d", width, height);
 
-        caps = gst_caps_new_simple ("video/x-h264",
-                "width", G_TYPE_INT, width,
-                "height", G_TYPE_INT, height,
-                "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
-                "stream-format", G_TYPE_STRING, "byte-stream",
-                "alignment", G_TYPE_STRING, "au",
-                "profile", G_TYPE_STRING, "high",
-                NULL);
+        caps = gst_caps_new_empty ();
 
-        gst_caps_append_structure (caps, gst_structure_new ("video/x-h265",
-                "width", G_TYPE_INT, width,
-                "height", G_TYPE_INT, height,
-                "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
-                "stream-format", G_TYPE_STRING, "byte-stream",
-                "alignment", G_TYPE_STRING, "au",
-                "profile", G_TYPE_STRING, "main",
-                NULL));
-
-        gst_caps_append_structure (caps, gst_structure_new ("video/x-av1",
-                "width", G_TYPE_INT, width,
-                "height", G_TYPE_INT, height,
-                "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
-                "stream-format", G_TYPE_STRING, "obu-stream",
-                "alignment", G_TYPE_STRING, "tu",
-                "profile", G_TYPE_STRING, "main",
-                NULL));
-
-        gst_caps_append_structure (caps, gst_structure_new ("video/x-raw",
-                "format", G_TYPE_STRING, "BGRx",
-                "width", G_TYPE_INT, width,
-                "height", G_TYPE_INT, height,
-                "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
-                NULL));
+        if (nvimageutil_codec_supported (s->xcontext, GST_NVIMAGE_CODEC_H264)) {
+                gst_caps_append_structure (caps, gst_structure_new ("video/x-h264",
+                        "width", G_TYPE_INT, width,
+                        "height", G_TYPE_INT, height,
+                        "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
+                        "stream-format", G_TYPE_STRING, "byte-stream",
+                        "alignment", G_TYPE_STRING, "au",
+                        "profile", G_TYPE_STRING, "high",
+                        NULL));
+        }
+        if (nvimageutil_codec_supported (s->xcontext, GST_NVIMAGE_CODEC_H265)) {
+                gst_caps_append_structure (caps, gst_structure_new ("video/x-h265",
+                        "width", G_TYPE_INT, width,
+                        "height", G_TYPE_INT, height,
+                        "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
+                        "stream-format", G_TYPE_STRING, "byte-stream",
+                        "alignment", G_TYPE_STRING, "au",
+                        "profile", G_TYPE_STRING, "main",
+                        NULL));
+        }
+        if (nvimageutil_codec_supported (s->xcontext, GST_NVIMAGE_CODEC_AV1)) {
+                gst_caps_append_structure (caps, gst_structure_new ("video/x-av1",
+                        "width", G_TYPE_INT, width,
+                        "height", G_TYPE_INT, height,
+                        "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
+                        "stream-format", G_TYPE_STRING, "obu-stream",
+                        "alignment", G_TYPE_STRING, "tu",
+                        "profile", G_TYPE_STRING, "main",
+                        NULL));
+        }
+        if (nvimageutil_codec_supported (s->xcontext, GST_NVIMAGE_CODEC_RAW)) {
+                gst_caps_append_structure (caps, gst_structure_new ("video/x-raw",
+                        "format", G_TYPE_STRING, "BGRx",
+                        "width", G_TYPE_INT, width,
+                        "height", G_TYPE_INT, height,
+                        "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
+                        NULL));
+        }
 
         if (filter) {
                 GstCaps *tmp = gst_caps_intersect_full (filter, caps, GST_CAPS_INTERSECT_FIRST);
