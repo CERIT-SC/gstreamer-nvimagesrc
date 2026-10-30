@@ -116,7 +116,7 @@ export PYTHONPATH=\"\${GSTREAMER_PATH}/lib/python3/dist-packages\${PYTHONPATH:+:
 
 COPY --chown=1000:1000 nvimage /opt/nvimage
 
-RUN apt-get update && apt-get -y install libnvidia-decode-550 libnvidia-fbc1-550 libnvidia-encode-550 && cd /opt/nvimage && ./build.sh && cp libgstnvimagesrc.so /opt/gstreamer/lib/x86_64-linux-gnu/gstreamer-1.0/ && apt-get remove --purge -y libnvidia-decode-550 libnvidia-fbc1-550 libnvidia-encode-550 libnvidia-compute-550 && apt-get clean &&  rm -rf /var/lib/apt/lists/*
+RUN cd /opt/nvimage && ./build.sh && cp libgstnvimagesrc.so /opt/gstreamer/lib/x86_64-linux-gnu/gstreamer-1.0/
 
 COPY vulkan /usr/share/vulkan
 RUN chown -R 1000:1000 /opt/gstreamer/lib/x86_64-linux-gnu/gstreamer-1.0/
