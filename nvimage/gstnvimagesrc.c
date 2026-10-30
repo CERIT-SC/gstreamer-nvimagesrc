@@ -104,9 +104,6 @@ gst_nvimage_src_open_display (GstNVimageSrc * s, const gchar * name)
 
         s->xcontext = nvimageutil_xcontext_get_r (GST_ELEMENT (s), name);
         if (s->xcontext == NULL) {
-                GST_ELEMENT_ERROR (s, RESOURCE, OPEN_READ,
-                                   ("Could not open X display for reading"),
-                                   ("NULL returned from getting xcontext"));
                 return FALSE;
         }
         s->width = s->xcontext->width;

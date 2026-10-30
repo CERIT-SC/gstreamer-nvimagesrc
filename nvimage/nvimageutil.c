@@ -33,8 +33,8 @@ typedef NVENCSTATUS (NVENCAPI *PNVENCODEAPICREATEINSTANCE) (NV_ENCODE_API_FUNCTI
 static PNVFBCCREATEINSTANCE nvFBCCreateInstance_fn = NULL;
 static PNVENCODEAPICREATEINSTANCE nvEncodeAPICreateInstance_fn = NULL;
 
-static gboolean nvimageutil_fbccontext_get(GstXContext *xcontext);
-static gboolean nvimageutil_fbccontext_clear(GstXContext *xcontext);
+static gboolean nvimageutil_fbccontext_get(GstXContext *xcontext, GstElement *parent);
+static void nvimageutil_fbccontext_clear(GstXContext *xcontext);
 static gboolean nvimageutil_xcontext_get (GstXContext *xcontext, GstElement * parent, const gchar * display_name);
 static void nvimageutil_xcontext_clear (GstXContext * xcontext);
 static GstBuffer * gst_nvimageutil_nvimage_new (GstXContext * xcontext, GstElement * parent, GstNVimageCodec codec,
@@ -208,9 +208,13 @@ nvimageutil_xcontext_get_r(GstElement * parent, const gchar * display_name)
 
         if(!ret) {
                 memset(&xcontext->funcdata, 0, sizeof(GstXThreadCall));
+                pthread_mutex_lock(&xcontext->mutex_in);
                 xcontext->finish = 1;
+                xcontext->funcdata.inputvalid = 1;
                 pthread_cond_signal(&xcontext->cond_in);
+                pthread_mutex_unlock(&xcontext->mutex_in);
                 pthread_join(xcontext->worker_tid, NULL);
+                g_free(xcontext);
                 return NULL;
         }
         return xcontext;
@@ -291,8 +295,8 @@ nvimageutil_xcontext_get (GstXContext *xcontext, GstElement * parent, const gcha
         xcontext->disp = XOpenDisplay (display_name);
         GST_DEBUG_OBJECT (parent, "opened display %p", xcontext->disp);
         if (!xcontext->disp) {
-                g_free (xcontext);
-                g_error ("Cannot open display");
+                GST_ELEMENT_ERROR (parent, RESOURCE, OPEN_READ,
+                        ("Cannot open display %s", display_name ? display_name : "(default)"), (NULL));
                 return FALSE;
         }
         xcontext->screen = DefaultScreenOfDisplay (xcontext->disp);
@@ -304,7 +308,8 @@ nvimageutil_xcontext_get (GstXContext *xcontext, GstElement * parent, const gcha
 
         if (!fbconfigs) {
                 XCloseDisplay (xcontext->disp);
-                g_error ("Cannot get fbconfigs");
+                GST_ELEMENT_ERROR (parent, RESOURCE, FAILED,
+                        ("Cannot get fbconfigs"), (NULL));
                 return FALSE;
         }
 
@@ -313,7 +318,8 @@ nvimageutil_xcontext_get (GstXContext *xcontext, GstElement * parent, const gcha
         if (xcontext->glxctx == None) {
                 XFree(fbconfigs);
                 XCloseDisplay (xcontext->disp);
-                g_error ("Cannot create new glx context");
+                GST_ELEMENT_ERROR (parent, RESOURCE, FAILED,
+                        ("Cannot create new glx context"), (NULL));
                 return FALSE;
         }
 
@@ -324,7 +330,8 @@ nvimageutil_xcontext_get (GstXContext *xcontext, GstElement * parent, const gcha
                 glXDestroyContext(xcontext->disp, xcontext->glxctx);
                 XFree(fbconfigs);
                 XCloseDisplay (xcontext->disp);
-                g_error ("Cannot create pixmap");
+                GST_ELEMENT_ERROR (parent, RESOURCE, FAILED,
+                        ("Cannot create pixmap"), (NULL));
                 return FALSE;
         }
 
@@ -335,7 +342,8 @@ nvimageutil_xcontext_get (GstXContext *xcontext, GstElement * parent, const gcha
                 glXDestroyContext(xcontext->disp, xcontext->glxctx);
                 XFree(fbconfigs);
                 XCloseDisplay (xcontext->disp);
-                g_error ("Cannot create glx pixmap");
+                GST_ELEMENT_ERROR (parent, RESOURCE, FAILED,
+                        ("Cannot create glx pixmap"), (NULL));
                 return FALSE;
         }
 
@@ -346,7 +354,8 @@ nvimageutil_xcontext_get (GstXContext *xcontext, GstElement * parent, const gcha
                 glXDestroyContext(xcontext->disp, xcontext->glxctx);
                 XFree(fbconfigs);
                 XCloseDisplay (xcontext->disp);
-                g_error ("Cannot set current context");
+                GST_ELEMENT_ERROR (parent, RESOURCE, FAILED,
+                        ("Cannot set current context"), (NULL));
                 return FALSE;
         }
 
@@ -361,7 +370,7 @@ nvimageutil_xcontext_get (GstXContext *xcontext, GstElement * parent, const gcha
         xcontext->goplen = 10;
         xcontext->show_pointer = 0;
 
-        if (!nvimageutil_fbccontext_get(xcontext)) {
+        if (!nvimageutil_fbccontext_get(xcontext, parent)) {
                 nvimageutil_xcontext_clear(xcontext);
                 return FALSE;
         }
@@ -487,7 +496,7 @@ nvimageutil_probe_codecs (GstXContext *xcontext)
 }
 
 static gboolean
-nvimageutil_fbccontext_get(GstXContext *xcontext)
+nvimageutil_fbccontext_get(GstXContext *xcontext, GstElement *parent)
 {
         NVFBCSTATUS                             fbcStatus;
         NVFBC_CREATE_HANDLE_PARAMS              createHandleParams;
@@ -506,7 +515,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
         fbcStatus = nvFBCCreateInstance_fn(&xcontext->pFn);
         if (fbcStatus != NVFBC_SUCCESS) {
-                g_error ("Cannot create FBC instance %d", fbcStatus);
+                GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
+                        ("Cannot create FBC instance"), ("NVFBC status %d", fbcStatus));
                 return FALSE;
         }
 
@@ -519,7 +529,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
         fbcStatus = xcontext->pFn.nvFBCCreateHandle(&xcontext->fbcHandle, &createHandleParams);
         if (fbcStatus != NVFBC_SUCCESS) {
-                g_error ("Cannot create FBC handle %d", fbcStatus);
+                GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
+                        ("Cannot create FBC handle"), ("NVFBC status %d", fbcStatus));
                 return FALSE;
         }
 
@@ -529,7 +540,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
         fbcStatus = xcontext->pFn.nvFBCGetStatus(xcontext->fbcHandle, &statusParams);
         if (fbcStatus != NVFBC_SUCCESS) {
-                g_error ("Cannot get FBC status %d", fbcStatus);
+                GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
+                        ("Cannot get FBC status"), ("NVFBC status %d", fbcStatus));
                 return FALSE;
         }
 
@@ -553,7 +565,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
         fbcStatus = xcontext->pFn.nvFBCCreateCaptureSession(xcontext->fbcHandle, &createCaptureParams);
 
         if (fbcStatus != NVFBC_SUCCESS) {
-                g_error ("Cannot create FBC session %d", fbcStatus);
+                GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
+                        ("Cannot create FBC session"), ("NVFBC status %d", fbcStatus));
                 return FALSE;
         }
 
@@ -567,7 +580,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
                 fbcStatus = xcontext->pFn.nvFBCToSysSetUp(xcontext->fbcHandle, &sysSetupParams);
                 if (fbcStatus != NVFBC_SUCCESS) {
-                        g_error ("Cannot setup FBC to system memory %d", fbcStatus);
+                        GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
+                                ("Cannot setup FBC to system memory"), ("NVFBC status %d", fbcStatus));
                         return FALSE;
                 }
                 return TRUE;    /* raw: no NVENC needed */
@@ -578,7 +592,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
         fbcStatus = xcontext->pFn.nvFBCToGLSetUp(xcontext->fbcHandle, &xcontext->setupParams);
         if (fbcStatus != NVFBC_SUCCESS) {
-                g_error ("Cannot setup FBC GL %d", fbcStatus);
+                GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
+                        ("Cannot setup FBC GL"), ("NVFBC status %d", fbcStatus));
                 return FALSE;
         }
 
@@ -586,7 +601,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
         encStatus = nvEncodeAPICreateInstance_fn(&xcontext->pEncFn);
         if (encStatus != NV_ENC_SUCCESS) {
-                g_error ("Cannot create NVENC instance %d", encStatus);
+                GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
+                        ("Cannot create NVENC instance"), ("NVENC status %d", encStatus));
                 return FALSE;
         }
 
@@ -598,7 +614,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
         encStatus = xcontext->pEncFn.nvEncOpenEncodeSessionEx(&encodeSessionParams, &xcontext->encoder);
         if (encStatus != NV_ENC_SUCCESS) {
-                g_error ("Cannot open NVENC session %d", encStatus);
+                GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
+                        ("Cannot open NVENC session"), ("NVENC status %d", encStatus));
                 return FALSE;
         }
 
@@ -614,7 +631,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
                                                   NV_ENC_TUNING_INFO_LOW_LATENCY,
                                                   &presetConfig);
         if (encStatus != NV_ENC_SUCCESS) {
-                g_error ("Cannot get NVENC preset config %d", encStatus);
+                GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
+                        ("Cannot get NVENC preset config"), ("NVENC status %d", encStatus));
                 return FALSE;
         }
 
@@ -654,7 +672,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
         encStatus = xcontext->pEncFn.nvEncInitializeEncoder(xcontext->encoder, &initParams);
         if (encStatus != NV_ENC_SUCCESS) {
-                g_error ("Cannot initialize NVENC encoder %d", encStatus);
+                GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
+                        ("Cannot initialize NVENC encoder"), ("NVENC status %d", encStatus));
                 return FALSE;
         }
 
@@ -683,7 +702,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
                 encStatus = xcontext->pEncFn.nvEncRegisterResource(xcontext->encoder, &registerParams);
                 if (encStatus != NV_ENC_SUCCESS) {
-                        g_error ("Cannot register NVENC resource %d", encStatus);
+                        GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
+                                ("Cannot register NVENC resource"), ("NVENC status %d", encStatus));
                         return FALSE;
                 }
 
@@ -695,7 +715,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
         encStatus = xcontext->pEncFn.nvEncCreateBitstreamBuffer(xcontext->encoder, &bitstreamBufferParams);
         if (encStatus != NV_ENC_SUCCESS) {
-                g_error ("Cannot create NVENC bitstream buffer %d", encStatus);
+                GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
+                        ("Cannot create NVENC bitstream buffer"), ("NVENC status %d", encStatus));
                 return FALSE;
         }
 
@@ -714,7 +735,7 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
 
 }
 
-static gboolean
+static void
 nvimageutil_fbccontext_clear(GstXContext *xcontext) {
         NVFBC_DESTROY_CAPTURE_SESSION_PARAMS destroyCaptureParams;
         NVFBC_DESTROY_HANDLE_PARAMS          destroyHandleParams;
@@ -726,8 +747,7 @@ nvimageutil_fbccontext_clear(GstXContext *xcontext) {
                         encStatus = xcontext->pEncFn.nvEncDestroyBitstreamBuffer(xcontext->encoder,
                                 xcontext->outputBuffer);
                         if (encStatus != NV_ENC_SUCCESS) {
-                                g_error("Cannot destroy bitstream buffer %d", encStatus);
-                                return FALSE;
+                                GST_WARNING ("Cannot destroy bitstream buffer %d", encStatus);
                         }
                 }
                 for (gint i = 0; i < NVFBC_TOGL_TEXTURES_MAX; i++) {
@@ -735,34 +755,32 @@ nvimageutil_fbccontext_clear(GstXContext *xcontext) {
                                 encStatus = xcontext->pEncFn.nvEncUnregisterResource(xcontext->encoder,
                                         xcontext->registeredResources[i]);
                                 if (encStatus != NV_ENC_SUCCESS) {
-                                        g_error("Cannot unregister resource %d", encStatus);
-                                        return FALSE;
+                                        GST_WARNING ("Cannot unregister resource %d", encStatus);
                                 }
                                 xcontext->registeredResources[i] = NULL;
                         }
                 }
                 encStatus = xcontext->pEncFn.nvEncDestroyEncoder(xcontext->encoder);
                 if (encStatus != NV_ENC_SUCCESS) {
-                        g_error("Cannot destroy encoder %d", encStatus);
-                        return FALSE;
+                        GST_WARNING ("Cannot destroy encoder %d", encStatus);
                 }
         }
 
-        memset(&destroyCaptureParams, 0, sizeof(destroyCaptureParams));
-        destroyCaptureParams.dwVersion = NVFBC_DESTROY_CAPTURE_SESSION_PARAMS_VER;
-        fbcStatus = xcontext->pFn.nvFBCDestroyCaptureSession(xcontext->fbcHandle, &destroyCaptureParams);
-        if (fbcStatus != NVFBC_SUCCESS) {
-                g_error("Cannot destroy capture session %d", fbcStatus);
-                return FALSE;
-        }
+        if (xcontext->pFn.nvFBCDestroyHandle != NULL) {
+                memset(&destroyCaptureParams, 0, sizeof(destroyCaptureParams));
+                destroyCaptureParams.dwVersion = NVFBC_DESTROY_CAPTURE_SESSION_PARAMS_VER;
+                fbcStatus = xcontext->pFn.nvFBCDestroyCaptureSession(xcontext->fbcHandle, &destroyCaptureParams);
+                if (fbcStatus != NVFBC_SUCCESS) {
+                        GST_WARNING ("Cannot destroy capture session %d", fbcStatus);
+                }
 
-        memset(&destroyHandleParams, 0, sizeof(destroyHandleParams));
-        destroyHandleParams.dwVersion = NVFBC_DESTROY_HANDLE_PARAMS_VER;
-        fbcStatus = xcontext->pFn.nvFBCDestroyHandle(xcontext->fbcHandle, &destroyHandleParams);
-        /*if (fbcStatus != NVFBC_SUCCESS) {
-                g_error("Cannot destroy fbc handle %d", fbcStatus);
-                return FALSE;
-        }*/
+                memset(&destroyHandleParams, 0, sizeof(destroyHandleParams));
+                destroyHandleParams.dwVersion = NVFBC_DESTROY_HANDLE_PARAMS_VER;
+                fbcStatus = xcontext->pFn.nvFBCDestroyHandle(xcontext->fbcHandle, &destroyHandleParams);
+                if (fbcStatus != NVFBC_SUCCESS) {
+                        GST_WARNING ("Cannot destroy fbc handle %d", fbcStatus);
+                }
+        }
 
         if(xcontext->out)
                 fclose(xcontext->out);
@@ -776,7 +794,6 @@ nvimageutil_fbccontext_clear(GstXContext *xcontext) {
         memset(&xcontext->mapParams, 0, sizeof(xcontext->mapParams));
         memset(&xcontext->encParams, 0, sizeof(xcontext->encParams));
         memset(&xcontext->setupParams, 0, sizeof(xcontext->setupParams));
-        return TRUE;
 }
 
 static gboolean
@@ -857,13 +874,8 @@ gst_nvimageutil_nvimage_new (GstXContext * xcontext, GstElement * parent, GstNVi
                 xcontext->show_pointer = show_pointer;
                 g_warning ("Recreating FBCNVENC pipeline, parametres change: codec: %d, bitrate: %d, showpointer %d, "
                            "fps: %f", codec, bitrate, show_pointer, ((double)fps_n)/fps_d);
-                if(!nvimageutil_fbccontext_clear(xcontext)) {
-                        g_error("Cannot clear context. Flow error.");
-                        return NULL;
-                }
-                if (!nvimageutil_fbccontext_get(xcontext)) {
-                        gst_buffer_unref (nvimage);
-                        g_error("Cannot create new context. Flow error.");
+                nvimageutil_fbccontext_clear(xcontext);
+                if (!nvimageutil_fbccontext_get(xcontext, parent)) {
                         return NULL;
                 }
         }
@@ -892,11 +904,8 @@ restart:
 
         if (fbcStatus == NVFBC_ERR_MUST_RECREATE) {
                 g_warning ("Recreating FBCNVENC pipeline, must recreate status.");
-                if (!nvimageutil_fbccontext_clear(xcontext)) {
-                        gst_buffer_unref (nvimage);
-                        return NULL;
-                }
-                if (!nvimageutil_fbccontext_get(xcontext)) {
+                nvimageutil_fbccontext_clear(xcontext);
+                if (!nvimageutil_fbccontext_get(xcontext, parent)) {
                         gst_buffer_unref (nvimage);
                         return NULL;
                 }
@@ -904,12 +913,15 @@ restart:
                 if(i <= 3) {
                         goto restart;
                 } else {
+                        GST_ELEMENT_ERROR (parent, RESOURCE, READ,
+                                ("NVFBC capture session keeps failing"), (NULL));
                         gst_buffer_unref (nvimage);
                         return NULL;
                 }
         } else if (fbcStatus != NVFBC_SUCCESS) {
                 gst_buffer_unref (nvimage);
-                g_error("Cannot grab frame %d", fbcStatus);
+                GST_ELEMENT_ERROR (parent, RESOURCE, READ,
+                        ("Cannot grab frame"), ("NVFBC status %d", fbcStatus));
                 return NULL;
         }
 
@@ -917,7 +929,8 @@ restart:
         encStatus = xcontext->pEncFn.nvEncMapInputResource(xcontext->encoder, &xcontext->mapParams);
         if (encStatus != NV_ENC_SUCCESS) {
                 gst_buffer_unref (nvimage);
-                g_error("Cannot Map input resource %d", encStatus);
+                GST_ELEMENT_ERROR (parent, STREAM, ENCODE,
+                        ("Cannot map input resource"), ("NVENC status %d", encStatus));
                 return NULL;
         }
 
@@ -937,7 +950,8 @@ restart:
 
         if (encStatus != NV_ENC_SUCCESS) {
                 gst_buffer_unref (nvimage);
-                g_error("Cannot encode picture %d", encStatus);
+                GST_ELEMENT_ERROR (parent, STREAM, ENCODE,
+                        ("Cannot encode picture"), ("NVENC status %d", encStatus));
                 return NULL;
         }
 
@@ -948,7 +962,8 @@ restart:
         encStatus = xcontext->pEncFn.nvEncLockBitstream(xcontext->encoder, &lockParams);
         if (encStatus != NV_ENC_SUCCESS) {
                 gst_buffer_unref (nvimage);
-                g_error("Cannot lock bitstream %d", encStatus);
+                GST_ELEMENT_ERROR (parent, STREAM, ENCODE,
+                        ("Cannot lock bitstream"), ("NVENC status %d", encStatus));
                 return NULL;
         }
 
@@ -963,18 +978,20 @@ restart:
         encStatus = xcontext->pEncFn.nvEncUnlockBitstream(xcontext->encoder, xcontext->outputBuffer);
 
         if (encStatus != NV_ENC_SUCCESS) {
-                gst_buffer_unref (nvimage);
                 g_free(meta->data);
-                g_error("Cannot unlock bitstream %d", encStatus);
+                gst_buffer_unref (nvimage);
+                GST_ELEMENT_ERROR (parent, STREAM, ENCODE,
+                        ("Cannot unlock bitstream"), ("NVENC status %d", encStatus));
                 return NULL;
         }
 
         encStatus = xcontext->pEncFn.nvEncUnmapInputResource(xcontext->encoder, xcontext->encParams.inputBuffer);
 
         if (encStatus != NV_ENC_SUCCESS) {
-                gst_buffer_unref (nvimage);
                 g_free(meta->data);
-                g_error("Cannot unmap input resource %d", encStatus);
+                gst_buffer_unref (nvimage);
+                GST_ELEMENT_ERROR (parent, STREAM, ENCODE,
+                        ("Cannot unmap input resource"), ("NVENC status %d", encStatus));
                 return NULL;
         }
 
