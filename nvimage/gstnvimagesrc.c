@@ -60,9 +60,13 @@ GST_STATIC_PAD_TEMPLATE ("src", GST_PAD_SRC, GST_PAD_ALWAYS,
     GST_STATIC_CAPS ("video/x-h264, "
         "framerate = (fraction) [ 0, MAX ], "
         "width = (int) [ 145, 4096 ], " "height = (int) [ 49, 4095 ], "
-	"stream-format = (string) byte-stream, "
-	"alignment = (string) au, "
-	"profile = (string) { main, high, high-4:4:4, baseline }"));
+        "stream-format = (string) byte-stream, "
+        "alignment = (string) au, "
+        "profile = (string) high; "
+        "video/x-raw, "
+        "format = (string) BGRx, "
+        "framerate = (fraction) [ 0, MAX ], "
+        "width = (int) [ 145, 4096 ], " "height = (int) [ 49, 4095 ]"));
 
 enum
 {
@@ -342,6 +346,7 @@ static GstCaps *
 gst_nvimage_src_get_caps (GstBaseSrc * bs, GstCaps * filter)
 {
         GstNVimageSrc *s = GST_NVIMAGE_SRC (bs);
+        GstCaps *caps;
         gint width, height;
 
         if ((!s->xcontext) || (!gst_nvimage_src_open_display (s, s->display_name)))
@@ -352,7 +357,7 @@ gst_nvimage_src_get_caps (GstBaseSrc * bs, GstCaps * filter)
 
         GST_DEBUG ("width = %d, height=%d", width, height);
 
-        return gst_caps_new_simple ("video/x-h264",
+        caps = gst_caps_new_simple ("video/x-h264",
                 "width", G_TYPE_INT, width,
                 "height", G_TYPE_INT, height,
                 "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
@@ -360,6 +365,21 @@ gst_nvimage_src_get_caps (GstBaseSrc * bs, GstCaps * filter)
                 "alignment", G_TYPE_STRING, "au",
                 "profile", G_TYPE_STRING, "high",
                 NULL);
+
+        gst_caps_append_structure (caps, gst_structure_new ("video/x-raw",
+                "format", G_TYPE_STRING, "BGRx",
+                "width", G_TYPE_INT, width,
+                "height", G_TYPE_INT, height,
+                "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
+                NULL));
+
+        if (filter) {
+                GstCaps *tmp = gst_caps_intersect_full (filter, caps, GST_CAPS_INTERSECT_FIRST);
+                gst_caps_unref (caps);
+                caps = tmp;
+        }
+
+        return caps;
 }
 
 static gboolean
@@ -384,6 +404,13 @@ gst_nvimage_src_set_caps (GstBaseSrc * bs, GstCaps * caps)
         s->fps_d = gst_value_get_fraction_denominator (new_fps);
 
         GST_DEBUG_OBJECT (s, "peer wants %d/%d fps", s->fps_n, s->fps_d);
+
+        if (gst_structure_has_name (structure, "video/x-raw"))
+                s->codec = GST_NVIMAGE_CODEC_RAW;
+        else
+                s->codec = GST_NVIMAGE_CODEC_H264;
+
+        GST_DEBUG_OBJECT (s, "negotiated %s", gst_structure_get_name (structure));
 
         return TRUE;
 }

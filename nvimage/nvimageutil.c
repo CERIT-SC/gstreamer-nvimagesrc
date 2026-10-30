@@ -432,17 +432,34 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
         memset(&createCaptureParams, 0, sizeof(createCaptureParams));
 
         createCaptureParams.dwVersion                   = NVFBC_CREATE_CAPTURE_SESSION_PARAMS_VER;
-        createCaptureParams.eCaptureType                = NVFBC_CAPTURE_TO_GL;
+        createCaptureParams.eCaptureType                = (xcontext->codec == GST_NVIMAGE_CODEC_RAW)
+                                                          ? NVFBC_CAPTURE_TO_SYS : NVFBC_CAPTURE_TO_GL;
         createCaptureParams.bWithCursor                 = xcontext->show_pointer;
         createCaptureParams.frameSize                   = frameSize;
         createCaptureParams.eTrackingType               = NVFBC_TRACKING_SCREEN;
         createCaptureParams.bDisableAutoModesetRecovery = NVFBC_TRUE;
 
         fbcStatus = xcontext->pFn.nvFBCCreateCaptureSession(xcontext->fbcHandle, &createCaptureParams);
-        
+
         if (fbcStatus != NVFBC_SUCCESS) {
                 g_error ("Cannot create FBC session %d", fbcStatus);
                 return FALSE;
+        }
+
+        if (xcontext->codec == GST_NVIMAGE_CODEC_RAW) {
+                NVFBC_TOSYS_SETUP_PARAMS sysSetupParams;
+
+                memset(&sysSetupParams, 0, sizeof(sysSetupParams));
+                sysSetupParams.dwVersion     = NVFBC_TOSYS_SETUP_PARAMS_VER;
+                sysSetupParams.eBufferFormat = NVFBC_BUFFER_FORMAT_BGRA;
+                sysSetupParams.ppBuffer      = &xcontext->sysBuffer;
+
+                fbcStatus = xcontext->pFn.nvFBCToSysSetUp(xcontext->fbcHandle, &sysSetupParams);
+                if (fbcStatus != NVFBC_SUCCESS) {
+                        g_error ("Cannot setup FBC to system memory %d", fbcStatus);
+                        return FALSE;
+                }
+                return TRUE;    /* raw: no NVENC needed */
         }
 
         xcontext->setupParams.dwVersion     = NVFBC_TOGL_SETUP_PARAMS_VER;
@@ -646,6 +663,34 @@ nvimageutil_fbccontext_clear(GstXContext *xcontext) {
 }
 
 static gboolean
+nvimageutil_grab_raw (GstXContext *xcontext, GstMetaNVimage *meta)
+{
+        NVFBC_TOSYS_GRAB_FRAME_PARAMS grabParams;
+        NVFBC_FRAME_GRAB_INFO         frameInfo;
+        NVFBCSTATUS                   fbcStatus;
+
+        memset(&grabParams, 0, sizeof(grabParams));
+        memset(&frameInfo, 0, sizeof(frameInfo));
+        grabParams.dwVersion      = NVFBC_TOSYS_GRAB_FRAME_PARAMS_VER;
+        grabParams.dwFlags        = NVFBC_TOSYS_GRAB_FLAGS_NOWAIT | NVFBC_TOSYS_GRAB_FLAGS_FORCE_REFRESH;
+        grabParams.pFrameGrabInfo = &frameInfo;
+
+        fbcStatus = xcontext->pFn.nvFBCToSysGrabFrame(xcontext->fbcHandle, &grabParams);
+        if (fbcStatus != NVFBC_SUCCESS) {
+                GST_ERROR ("Cannot grab raw frame %d", fbcStatus);
+                return FALSE;
+        }
+
+        meta->size   = frameInfo.dwByteSize;
+        meta->width  = frameInfo.dwWidth;
+        meta->height = frameInfo.dwHeight;
+        meta->data   = g_new (char, meta->size);
+        memcpy (meta->data, xcontext->sysBuffer, meta->size);
+
+        return TRUE;
+}
+
+static gboolean
 gst_nvimagesrc_buffer_dispose (GstBuffer * nvimage)
 {
         GstElement *parent;
@@ -711,6 +756,15 @@ gst_nvimageutil_nvimage_new (GstXContext * xcontext, GstElement * parent, GstNVi
                 (GstMiniObjectDisposeFunction) gst_nvimagesrc_buffer_dispose;
 
         meta = GST_META_NVIMAGE_ADD (nvimage);
+
+        if (codec == GST_NVIMAGE_CODEC_RAW) {
+                /* TODO: handle NVFBC_ERR_MUST_RECREATE like the GL path */
+                if (!nvimageutil_grab_raw (xcontext, meta)) {
+                        gst_buffer_unref (nvimage);
+                        return NULL;
+                }
+                goto wrap;
+        }
 
 restart:
         memset(&grabParams, 0, sizeof(grabParams));
@@ -807,6 +861,7 @@ restart:
                 return NULL;
         }
 
+wrap:
         gst_buffer_append_memory (nvimage, gst_memory_new_wrapped (GST_MEMORY_FLAG_NO_SHARE, meta->data,
                                         meta->size, 0, meta->size, NULL, NULL));
 
