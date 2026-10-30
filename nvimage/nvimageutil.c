@@ -26,6 +26,9 @@
 #include <stdio.h>
 #include <unistd.h>
 
+GST_DEBUG_CATEGORY_EXTERN (gst_debug_nvimage_src);
+#define GST_CAT_DEFAULT gst_debug_nvimage_src
+
 typedef NVENCSTATUS (NVENCAPI *PNVENCODEAPICREATEINSTANCE) (NV_ENCODE_API_FUNCTION_LIST *functionList);
 static PNVFBCCREATEINSTANCE nvFBCCreateInstance_fn = NULL;
 static PNVENCODEAPICREATEINSTANCE nvEncodeAPICreateInstance_fn = NULL;
