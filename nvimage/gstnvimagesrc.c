@@ -301,7 +301,7 @@ gst_nvimage_src_set_property (GObject * object, guint prop_id, const GValue * va
                         }
                         break;
                 default:
-                        g_warning("Unknown property %d", prop_id);
+                        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
                         break;
         }
 }
@@ -482,11 +482,11 @@ gst_nvimage_src_event (GstBaseSrc * bsrc, GstEvent * event) {
 				if(strcmp(g_quark_to_string(s->name), "RTPTWCCPackets") == 0) {
 					return TRUE;
 				}
-                                g_warning("got event: %d, subtype: %s", event->type, g_quark_to_string(s->name));
+                                GST_DEBUG_OBJECT (nvs, "got event: %d, subtype: %s", event->type, g_quark_to_string(s->name));
 
                                 if (event->type == GST_EVENT_CUSTOM_UPSTREAM) {
                                         if (gst_structure_has_name (s, "GstForceKeyUnit") && nvs) {
-                                                g_warning("Forcing keyframe");
+                                                GST_DEBUG_OBJECT (nvs, "Forcing keyframe");
                                                 nvs->keyframe = 1;
                                         }
                                 }

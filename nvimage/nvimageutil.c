@@ -835,7 +835,7 @@ gst_nvimagesrc_buffer_dispose (GstBuffer * nvimage)
 
         parent = meta->parent;
         if (parent == NULL) {
-                g_warning ("NVimageSrcBuffer->nvimagesrc == NULL");
+                GST_WARNING ("NVimageSrcBuffer->nvimagesrc == NULL");
                 return ret;
         }
 
@@ -872,8 +872,8 @@ gst_nvimageutil_nvimage_new (GstXContext * xcontext, GstElement * parent, GstNVi
                 xcontext->fps_d = fps_d;
                 xcontext->bitrate = bitrate;
                 xcontext->show_pointer = show_pointer;
-                g_warning ("Recreating FBCNVENC pipeline, parametres change: codec: %d, bitrate: %d, showpointer %d, "
-                           "fps: %f", codec, bitrate, show_pointer, ((double)fps_n)/fps_d);
+                GST_INFO ("Recreating FBCNVENC pipeline, parametres change: codec: %d, bitrate: %d, showpointer %d, "
+                          "fps: %f", codec, bitrate, show_pointer, ((double)fps_n)/fps_d);
                 nvimageutil_fbccontext_clear(xcontext);
                 if (!nvimageutil_fbccontext_get(xcontext, parent)) {
                         return NULL;
@@ -903,7 +903,7 @@ restart:
         fbcStatus = xcontext->pFn.nvFBCToGLGrabFrame(xcontext->fbcHandle, &grabParams);
 
         if (fbcStatus == NVFBC_ERR_MUST_RECREATE) {
-                g_warning ("Recreating FBCNVENC pipeline, must recreate status.");
+                GST_WARNING ("Recreating FBCNVENC pipeline, must recreate status.");
                 nvimageutil_fbccontext_clear(xcontext);
                 if (!nvimageutil_fbccontext_get(xcontext, parent)) {
                         gst_buffer_unref (nvimage);
@@ -940,7 +940,7 @@ restart:
         xcontext->encParams.inputDuration = (1000000000L*xcontext->fps_d)/xcontext->fps_n; 
         xcontext->encParams.inputTimeStamp = frame*xcontext->encParams.inputDuration;
         if(forcekeyframe) {
-                g_warning("Forced keyframe");
+                GST_DEBUG ("Forced keyframe");
                 xcontext->encParams.encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR;
         } else {
                 xcontext->encParams.encodePicFlags = 0;
