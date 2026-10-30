@@ -63,6 +63,12 @@ GST_STATIC_PAD_TEMPLATE ("src", GST_PAD_SRC, GST_PAD_ALWAYS,
         "stream-format = (string) byte-stream, "
         "alignment = (string) au, "
         "profile = (string) high; "
+        "video/x-h265, "
+        "framerate = (fraction) [ 0, MAX ], "
+        "width = (int) [ 145, 4096 ], " "height = (int) [ 49, 4095 ], "
+        "stream-format = (string) byte-stream, "
+        "alignment = (string) au, "
+        "profile = (string) main; "
         "video/x-raw, "
         "format = (string) BGRx, "
         "framerate = (fraction) [ 0, MAX ], "
@@ -366,6 +372,15 @@ gst_nvimage_src_get_caps (GstBaseSrc * bs, GstCaps * filter)
                 "profile", G_TYPE_STRING, "high",
                 NULL);
 
+        gst_caps_append_structure (caps, gst_structure_new ("video/x-h265",
+                "width", G_TYPE_INT, width,
+                "height", G_TYPE_INT, height,
+                "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
+                "stream-format", G_TYPE_STRING, "byte-stream",
+                "alignment", G_TYPE_STRING, "au",
+                "profile", G_TYPE_STRING, "main",
+                NULL));
+
         gst_caps_append_structure (caps, gst_structure_new ("video/x-raw",
                 "format", G_TYPE_STRING, "BGRx",
                 "width", G_TYPE_INT, width,
@@ -407,6 +422,8 @@ gst_nvimage_src_set_caps (GstBaseSrc * bs, GstCaps * caps)
 
         if (gst_structure_has_name (structure, "video/x-raw"))
                 s->codec = GST_NVIMAGE_CODEC_RAW;
+        else if (gst_structure_has_name (structure, "video/x-h265"))
+                s->codec = GST_NVIMAGE_CODEC_H265;
         else
                 s->codec = GST_NVIMAGE_CODEC_H264;
 
@@ -490,7 +507,7 @@ gst_nvimage_src_class_init (GstNVimageSrcClass * klass)
 
         gst_element_class_set_static_metadata (ec, "NVimage video source",
                                               "Source/Video",
-                                              "Creates a screenshot video stream to h264",
+                                              "Creates a screenshot video stream as raw, H.264 or H.265 video",
                                               "Lukas Hejtmanek <xhejtman@gmail.com>");
         gst_element_class_add_static_pad_template (ec, &t);
 

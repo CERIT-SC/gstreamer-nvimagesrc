@@ -375,6 +375,34 @@ nvimageutil_xcontext_clear (GstXContext * xcontext)
         XCloseDisplay (xcontext->disp);
 }
 
+static void
+nvimageutil_config_h264 (NV_ENC_CONFIG *cfg)
+{
+        NV_ENC_CONFIG_H264 *h264 = &cfg->encodeCodecConfig.h264Config;
+
+        cfg->profileGUID = NV_ENC_H264_PROFILE_HIGH_GUID;
+        h264->repeatSPSPPS = 0;
+        h264->outputAUD = 1;
+        h264->outputPictureTimingSEI = 1;
+        h264->chromaFormatIDC = 1;
+        h264->level = NV_ENC_LEVEL_AUTOSELECT;
+        h264->idrPeriod = 0;
+}
+
+static void
+nvimageutil_config_h265 (NV_ENC_CONFIG *cfg)
+{
+        NV_ENC_CONFIG_HEVC *hevc = &cfg->encodeCodecConfig.hevcConfig;
+
+        cfg->profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+        hevc->repeatSPSPPS = 0;
+        hevc->outputAUD = 1;
+        hevc->outputPictureTimingSEI = 1;
+        hevc->chromaFormatIDC = 1;
+        hevc->level = NV_ENC_LEVEL_AUTOSELECT;
+        hevc->idrPeriod = 0;
+}
+
 static gboolean
 nvimageutil_fbccontext_get(GstXContext *xcontext)
 {
@@ -491,7 +519,10 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
                 return FALSE;
         }
 
-        encodeGuid = NV_ENC_CODEC_H264_GUID;
+        if (xcontext->codec == GST_NVIMAGE_CODEC_H265)
+                encodeGuid = NV_ENC_CODEC_HEVC_GUID;
+        else
+                encodeGuid = NV_ENC_CODEC_H264_GUID;
 
         memset(&presetConfig, 0, sizeof(presetConfig));
 
@@ -514,13 +545,12 @@ nvimageutil_fbccontext_get(GstXContext *xcontext)
         presetConfig.presetCfg.rcParams.multiPass             = NV_ENC_TWO_PASS_QUARTER_RESOLUTION;
         presetConfig.presetCfg.rcParams.lowDelayKeyFrameScale = 1;
         presetConfig.presetCfg.rcParams.zeroReorderDelay = 1;
-        presetConfig.presetCfg.profileGUID               = NV_ENC_H264_PROFILE_HIGH_GUID;
-        presetConfig.presetCfg.encodeCodecConfig.h264Config.repeatSPSPPS           = 0;
-        presetConfig.presetCfg.encodeCodecConfig.h264Config.outputAUD              = 1;
-        presetConfig.presetCfg.encodeCodecConfig.h264Config.outputPictureTimingSEI = 1;
-        presetConfig.presetCfg.encodeCodecConfig.h264Config.chromaFormatIDC        = 1;
-        presetConfig.presetCfg.encodeCodecConfig.h264Config.level                  = NV_ENC_LEVEL_AUTOSELECT;
-        presetConfig.presetCfg.encodeCodecConfig.h264Config.idrPeriod              = 0;
+
+        if (xcontext->codec == GST_NVIMAGE_CODEC_H265)
+                nvimageutil_config_h265 (&presetConfig.presetCfg);
+        else
+                nvimageutil_config_h264 (&presetConfig.presetCfg);
+
 	presetConfig.presetCfg.gopLength 					   = NVENC_INFINITE_GOPLENGTH;
 
 	memset(&initParams, 0, sizeof(initParams));
