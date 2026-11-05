@@ -118,7 +118,7 @@ COPY --chown=1000:1000 nvimage /opt/nvimage
 
 RUN cd /opt/nvimage && ./build.sh && cp libgstnvimagesrc.so /opt/gstreamer/lib/x86_64-linux-gnu/gstreamer-1.0/
 
-COPY vulkan /usr/share/vulkan
+COPY docker/vulkan /usr/share/vulkan
 RUN chown -R 1000:1000 /opt/gstreamer/lib/x86_64-linux-gnu/gstreamer-1.0/
-COPY NvFBCToGLEnc /usr/local/bin/
+COPY docker/NvFBCToGLEnc /usr/local/bin/
 RUN apt-get update && apt-get -y install gdb
