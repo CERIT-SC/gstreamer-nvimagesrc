@@ -864,7 +864,6 @@ gst_nvimageutil_nvimage_new (GstXContext * xcontext, GstElement * parent, GstNVi
             xcontext->fps_n != fps_n ||
             xcontext->fps_d != fps_d ||
             xcontext->bitrate != bitrate ||
-	    forcekeyframe ||
             xcontext->show_pointer != show_pointer) {
                 xcontext->codec = codec;
                 xcontext->fps_n = fps_n;
@@ -937,7 +936,7 @@ restart:
         xcontext->encParams.inputTimeStamp = frame*xcontext->encParams.inputDuration;
         if(forcekeyframe) {
                 GST_DEBUG ("Forced keyframe");
-                xcontext->encParams.encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR;
+                xcontext->encParams.encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR | NV_ENC_PIC_FLAG_OUTPUT_SPSPPS;
         } else {
                 xcontext->encParams.encodePicFlags = 0;
         }
