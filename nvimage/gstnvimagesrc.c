@@ -246,8 +246,6 @@ gst_nvimage_src_create (GstPushSrc * bs, GstBuffer ** buf)
 
 	_keyframe = s->keyframe;
 
-        gst_base_src_negotiate (GST_BASE_SRC (s));
-
         image = gst_nvimageutil_nvimage_new_r(s->xcontext, GST_ELEMENT(s), s->codec,
                                             s->fps_n, s->fps_d, s->bitrate, s->show_pointer, _keyframe, 
                                             next_frame_no, next_capture_ts);
@@ -258,6 +256,17 @@ gst_nvimage_src_create (GstPushSrc * bs, GstBuffer ** buf)
 
         if (!image)
                 return GST_FLOW_ERROR;
+
+        if (s->xcontext->width != s->width || s->xcontext->height != s->height) {
+                GST_INFO_OBJECT (s, "Screen size changed to %dx%d",
+                        s->xcontext->width, s->xcontext->height);
+                s->width = s->xcontext->width;
+                s->height = s->xcontext->height;
+                if (!gst_base_src_negotiate (GST_BASE_SRC (s))) {
+                        gst_buffer_unref (image);
+                        return GST_FLOW_NOT_NEGOTIATED;
+                }
+        }
 
         *buf = image;
         GST_BUFFER_DTS (*buf) = GST_CLOCK_TIME_NONE; //pts+s->last_frame_no;
