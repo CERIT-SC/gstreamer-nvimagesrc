@@ -495,6 +495,17 @@ nvimageutil_probe_codecs (GstXContext *xcontext)
         GST_INFO ("Supported codecs mask 0x%x", xcontext->codecs);
 }
 
+static const gchar *
+nvimageutil_fbc_error (GstXContext *xcontext)
+{
+        const char *msg = NULL;
+
+        if (xcontext->pFn.nvFBCGetLastErrorStr)
+                msg = xcontext->pFn.nvFBCGetLastErrorStr (xcontext->fbcHandle);
+
+        return msg ? msg : "";
+}
+
 static gboolean
 nvimageutil_fbccontext_get(GstXContext *xcontext, GstElement *parent)
 {
@@ -516,7 +527,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext, GstElement *parent)
         fbcStatus = nvFBCCreateInstance_fn(&xcontext->pFn);
         if (fbcStatus != NVFBC_SUCCESS) {
                 GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
-                        ("Cannot create FBC instance"), ("NVFBC status %d", fbcStatus));
+                        ("Cannot create FBC instance"),
+                        ("NVFBC status %d: %s", fbcStatus, nvimageutil_fbc_error (xcontext)));
                 return FALSE;
         }
 
@@ -530,7 +542,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext, GstElement *parent)
         fbcStatus = xcontext->pFn.nvFBCCreateHandle(&xcontext->fbcHandle, &createHandleParams);
         if (fbcStatus != NVFBC_SUCCESS) {
                 GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
-                        ("Cannot create FBC handle"), ("NVFBC status %d", fbcStatus));
+                        ("Cannot create FBC handle"),
+                        ("NVFBC status %d: %s", fbcStatus, nvimageutil_fbc_error (xcontext)));
                 return FALSE;
         }
 
@@ -541,7 +554,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext, GstElement *parent)
         fbcStatus = xcontext->pFn.nvFBCGetStatus(xcontext->fbcHandle, &statusParams);
         if (fbcStatus != NVFBC_SUCCESS) {
                 GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
-                        ("Cannot get FBC status"), ("NVFBC status %d", fbcStatus));
+                        ("Cannot get FBC status"),
+                        ("NVFBC status %d: %s", fbcStatus, nvimageutil_fbc_error (xcontext)));
                 return FALSE;
         }
 
@@ -566,7 +580,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext, GstElement *parent)
 
         if (fbcStatus != NVFBC_SUCCESS) {
                 GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
-                        ("Cannot create FBC session"), ("NVFBC status %d", fbcStatus));
+                        ("Cannot create FBC session"),
+                        ("NVFBC status %d: %s", fbcStatus, nvimageutil_fbc_error (xcontext)));
                 return FALSE;
         }
 
@@ -581,7 +596,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext, GstElement *parent)
                 fbcStatus = xcontext->pFn.nvFBCToSysSetUp(xcontext->fbcHandle, &sysSetupParams);
                 if (fbcStatus != NVFBC_SUCCESS) {
                         GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
-                                ("Cannot setup FBC to system memory"), ("NVFBC status %d", fbcStatus));
+                                ("Cannot setup FBC to system memory"),
+                                ("NVFBC status %d: %s", fbcStatus, nvimageutil_fbc_error (xcontext)));
                         return FALSE;
                 }
                 return TRUE;    /* raw: no NVENC needed */
@@ -593,7 +609,8 @@ nvimageutil_fbccontext_get(GstXContext *xcontext, GstElement *parent)
         fbcStatus = xcontext->pFn.nvFBCToGLSetUp(xcontext->fbcHandle, &xcontext->setupParams);
         if (fbcStatus != NVFBC_SUCCESS) {
                 GST_ELEMENT_ERROR (parent, LIBRARY, INIT,
-                        ("Cannot setup FBC GL"), ("NVFBC status %d", fbcStatus));
+                        ("Cannot setup FBC GL"),
+                        ("NVFBC status %d: %s", fbcStatus, nvimageutil_fbc_error (xcontext)));
                 return FALSE;
         }
 
@@ -913,7 +930,8 @@ restart:
         } else if (fbcStatus != NVFBC_SUCCESS) {
                 gst_buffer_unref (nvimage);
                 GST_ELEMENT_ERROR (parent, RESOURCE, READ,
-                        ("Cannot grab frame"), ("NVFBC status %d", fbcStatus));
+                        ("Cannot grab frame"),
+                        ("NVFBC status %d: %s", fbcStatus, nvimageutil_fbc_error (xcontext)));
                 return NULL;
         }
 
