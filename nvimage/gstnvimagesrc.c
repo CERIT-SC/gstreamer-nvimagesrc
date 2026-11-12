@@ -496,6 +496,46 @@ gst_nvimage_src_event (GstBaseSrc * bsrc, GstEvent * event) {
 }
 
 static void
+gst_nvimage_src_report_unsupported_codec (GstNVimageSrc * s)
+{
+        GstCaps *peercaps;
+        guint i;
+
+        if (!s->xcontext)
+                return;
+
+        peercaps = gst_pad_peer_query_caps (GST_BASE_SRC_PAD (s), NULL);
+        if (!peercaps)
+                return;
+
+        for (i = 0; i < G_N_ELEMENTS (formats); i++) {
+                GstCaps *codec_caps = gst_caps_new_empty_simple (formats[i].media_type);
+                gboolean wanted = gst_caps_can_intersect (peercaps, codec_caps);
+
+                gst_caps_unref (codec_caps);
+
+                if (wanted && !nvimageutil_codec_supported (s->xcontext, formats[i].codec)) {
+                        GST_ELEMENT_ERROR (s, STREAM, FORMAT,
+                                ("%s encoding is not supported by this GPU", formats[i].name),
+                                ("Downstream accepts %" GST_PTR_FORMAT, peercaps));
+                        break;
+                }
+        }
+
+        gst_caps_unref (peercaps);
+}
+
+static gboolean
+gst_nvimage_src_negotiate (GstBaseSrc * bsrc)
+{
+        if (GST_BASE_SRC_CLASS (parent_class)->negotiate (bsrc))
+                return TRUE;
+
+        gst_nvimage_src_report_unsupported_codec (GST_NVIMAGE_SRC (bsrc));
+        return FALSE;
+}
+
+static void
 gst_nvimage_src_class_init (GstNVimageSrcClass * klass)
 {
         GObjectClass *gc = G_OBJECT_CLASS (klass);
@@ -538,6 +578,7 @@ gst_nvimage_src_class_init (GstNVimageSrcClass * klass)
         bc->stop = gst_nvimage_src_stop;
         bc->unlock = gst_nvimage_src_unlock;
         bc->event = gst_nvimage_src_event;
+        bc->negotiate = gst_nvimage_src_negotiate;
         push_class->create = gst_nvimage_src_create;
 }
 
