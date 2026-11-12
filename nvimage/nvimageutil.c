@@ -796,7 +796,7 @@ nvimageutil_fbccontext_clear(GstXContext *xcontext) {
         memset(&xcontext->setupParams, 0, sizeof(xcontext->setupParams));
 }
 
-static gboolean
+static NVFBCSTATUS
 nvimageutil_grab_raw (GstXContext *xcontext, GstMetaNVimage *meta)
 {
         NVFBC_TOSYS_GRAB_FRAME_PARAMS grabParams;
@@ -811,8 +811,7 @@ nvimageutil_grab_raw (GstXContext *xcontext, GstMetaNVimage *meta)
 
         fbcStatus = xcontext->pFn.nvFBCToSysGrabFrame(xcontext->fbcHandle, &grabParams);
         if (fbcStatus != NVFBC_SUCCESS) {
-                GST_ERROR ("Cannot grab raw frame %d", fbcStatus);
-                return FALSE;
+                return fbcStatus;
         }
 
         meta->size   = frameInfo.dwByteSize;
@@ -821,7 +820,7 @@ nvimageutil_grab_raw (GstXContext *xcontext, GstMetaNVimage *meta)
         meta->data   = g_new (char, meta->size);
         memcpy (meta->data, xcontext->sysBuffer, meta->size);
 
-        return TRUE;
+        return NVFBC_SUCCESS;
 }
 
 static gboolean
@@ -886,21 +885,15 @@ gst_nvimageutil_nvimage_new (GstXContext * xcontext, GstElement * parent, GstNVi
 
         meta = GST_META_NVIMAGE_ADD (nvimage);
 
-        if (codec == GST_NVIMAGE_CODEC_RAW) {
-                /* TODO: handle NVFBC_ERR_MUST_RECREATE like the GL path */
-                if (!nvimageutil_grab_raw (xcontext, meta)) {
-                        gst_buffer_unref (nvimage);
-                        return NULL;
-                }
-                goto wrap;
-        }
-
 restart:
-        memset(&grabParams, 0, sizeof(grabParams));
-        grabParams.dwVersion = NVFBC_TOGL_GRAB_FRAME_PARAMS_VER;
-        grabParams.dwFlags = NVFBC_TOGL_GRAB_FLAGS_NOWAIT | NVFBC_TOGL_GRAB_FLAGS_FORCE_REFRESH;
-
-        fbcStatus = xcontext->pFn.nvFBCToGLGrabFrame(xcontext->fbcHandle, &grabParams);
+        if (codec == GST_NVIMAGE_CODEC_RAW) {
+                fbcStatus = nvimageutil_grab_raw (xcontext, meta);
+        } else {
+                memset(&grabParams, 0, sizeof(grabParams));
+                grabParams.dwVersion = NVFBC_TOGL_GRAB_FRAME_PARAMS_VER;
+                grabParams.dwFlags = NVFBC_TOGL_GRAB_FLAGS_NOWAIT | NVFBC_TOGL_GRAB_FLAGS_FORCE_REFRESH;
+                fbcStatus = xcontext->pFn.nvFBCToGLGrabFrame(xcontext->fbcHandle, &grabParams);
+        }
 
         if (fbcStatus == NVFBC_ERR_MUST_RECREATE) {
                 GST_WARNING ("Recreating FBCNVENC pipeline, must recreate status.");
@@ -924,6 +917,9 @@ restart:
                         ("Cannot grab frame"), ("NVFBC status %d", fbcStatus));
                 return NULL;
         }
+
+        if (codec == GST_NVIMAGE_CODEC_RAW)
+                goto wrap;
 
         xcontext->mapParams.registeredResource = xcontext->registeredResources[grabParams.dwTextureIndex];
         encStatus = xcontext->pEncFn.nvEncMapInputResource(xcontext->encoder, &xcontext->mapParams);
