@@ -482,25 +482,11 @@ gst_nvimage_src_fixate (GstBaseSrc * bsrc, GstCaps * caps)
 
 static gboolean
 gst_nvimage_src_event (GstBaseSrc * bsrc, GstEvent * event) {
-        if(event) {
-                const GstStructure *s = gst_event_get_structure(event);
-                GstNVimageSrc *nvs = GST_NVIMAGE_SRC (bsrc);
-                if(s && s->name) {
-                        const char *p = g_quark_to_string(s->name);
-                        if(p) {
-				if(strcmp(g_quark_to_string(s->name), "RTPTWCCPackets") == 0) {
-					return TRUE;
-				}
-                                GST_DEBUG_OBJECT (nvs, "got event: %d, subtype: %s", event->type, g_quark_to_string(s->name));
+        GstNVimageSrc *nvs = GST_NVIMAGE_SRC (bsrc);
 
-                                if (event->type == GST_EVENT_CUSTOM_UPSTREAM) {
-                                        if (gst_structure_has_name (s, "GstForceKeyUnit") && nvs) {
-                                                GST_DEBUG_OBJECT (nvs, "Forcing keyframe");
-                                                nvs->keyframe = 1;
-                                        }
-                                }
-                        }
-                }
+        if (gst_video_event_is_force_key_unit (event)) {
+                GST_DEBUG_OBJECT (nvs, "Forcing keyframe");
+                nvs->keyframe = 1;
         }
         return TRUE;
 }
