@@ -234,6 +234,7 @@ nvimageutil_xcontext_clear_r (GstXContext * xcontext)
                 pthread_cond_wait(&xcontext->cond_out, &xcontext->mutex_out);
         }
         pthread_mutex_unlock(&xcontext->mutex_out);
+        pthread_join(xcontext->worker_tid, NULL);
         g_free (xcontext);
 }
 
