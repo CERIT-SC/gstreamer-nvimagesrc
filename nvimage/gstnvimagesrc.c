@@ -260,15 +260,11 @@ gst_nvimage_src_create (GstPushSrc * bs, GstBuffer ** buf)
         s->last_frame_no = next_frame_no;
         GST_OBJECT_UNLOCK (s);
 
-	_keyframe = s->keyframe;
+        _keyframe = g_atomic_int_exchange (&s->keyframe, 0);
 
         image = gst_nvimageutil_nvimage_new_r(s->xcontext, GST_ELEMENT(s), s->codec,
-                                            s->fps_n, s->fps_d, s->bitrate, s->show_pointer, _keyframe, 
+                                            s->fps_n, s->fps_d, s->bitrate, s->show_pointer, _keyframe,
                                             next_frame_no, next_capture_ts);
-
-        if(_keyframe) {
-                s->keyframe = 0;
-        }
 
         if (!image)
                 return GST_FLOW_ERROR;
@@ -490,7 +486,7 @@ gst_nvimage_src_event (GstBaseSrc * bsrc, GstEvent * event) {
 
         if (gst_video_event_is_force_key_unit (event)) {
                 GST_DEBUG_OBJECT (nvs, "Forcing keyframe");
-                nvs->keyframe = 1;
+                g_atomic_int_set (&nvs->keyframe, 1);
         }
         return TRUE;
 }
