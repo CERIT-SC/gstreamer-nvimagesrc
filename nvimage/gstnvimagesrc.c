@@ -487,8 +487,9 @@ gst_nvimage_src_event (GstBaseSrc * bsrc, GstEvent * event) {
         if (gst_video_event_is_force_key_unit (event)) {
                 GST_DEBUG_OBJECT (nvs, "Forcing keyframe");
                 g_atomic_int_set (&nvs->keyframe, 1);
+                return TRUE;
         }
-        return TRUE;
+        return GST_BASE_SRC_CLASS (parent_class)->event (bsrc, event);
 }
 
 static void
