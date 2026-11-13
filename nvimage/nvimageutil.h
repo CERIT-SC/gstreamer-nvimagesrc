@@ -22,6 +22,8 @@
 
 #include <stdio.h>
 
+#include <gmodule.h>
+
 #include <gst/gst.h>
 
 #include <X11/Xlib.h>
@@ -37,6 +39,14 @@
 
 G_BEGIN_DECLS
 
+typedef enum
+{
+  GST_NVIMAGE_CODEC_H264,
+  GST_NVIMAGE_CODEC_H265,
+  GST_NVIMAGE_CODEC_AV1,
+  GST_NVIMAGE_CODEC_RAW
+} GstNVimageCodec;
+
 typedef struct _GstXContext GstXContext;
 typedef struct _GstNVimage GstNVimage;
 typedef struct _GstMetaNVimage GstMetaNVimage;
@@ -46,6 +56,7 @@ typedef struct {
         union {
           GstElement * parent;
           const gchar * display_name;
+          GstNVimageCodec codec;
           uint fps_n; 
           guint fps_d; 
           gint bitrate;
@@ -97,6 +108,10 @@ struct _GstXContext {
 
   gint width, height;
 
+  GstNVimageCodec codec;
+  guint codecs;  /* bitmask: 1 << GstNVimageCodec */
+  void *sysBuffer;              /* NVFBC system-memory frame, raw mode only */
+
   guint fps_n;                  
   guint fps_d;                 
   gint goplen;
@@ -130,8 +145,12 @@ struct _GstXContext {
   FILE *out;
 };
 
+gboolean nvimage_load_libraries(void);
+
 GstXContext *nvimageutil_xcontext_get_r (GstElement *parent, const gchar *display_name);
 void nvimageutil_xcontext_clear_r (GstXContext *xcontext);
+
+gboolean nvimageutil_codec_supported (GstXContext *xcontext, GstNVimageCodec codec);
 
 /* custom nvimagesrc buffer, copied from nvimagesink */
 
@@ -160,7 +179,8 @@ const GstMetaInfo * gst_meta_nvimage_get_info (void);
 #define GST_META_NVIMAGE_GET(buf) ((GstMetaNVimage *)gst_buffer_get_meta(buf,gst_meta_nvimage_api_get_type()))
 #define GST_META_NVIMAGE_ADD(buf) ((GstMetaNVimage *)gst_buffer_add_meta(buf,gst_meta_nvimage_get_info(),NULL))
 
-GstBuffer * gst_nvimageutil_nvimage_new_r (GstXContext * xcontext, GstElement * parent, guint fps_n, guint fps_d, gint bitrate, gboolean show_pointer, gint forcekeyframe, gint64 frame, gint64 ts);
+GstBuffer * gst_nvimageutil_nvimage_new_r (GstXContext * xcontext, GstElement * parent,
+  GstNVimageCodec codec, guint fps_n, guint fps_d, gint bitrate, gboolean show_pointer, gint forcekeyframe, gint64 frame, gint64 ts);
 
 void gst_nvimageutil_nvimage_destroy (GstXContext * xcontext, GstBuffer * nvimage);
 

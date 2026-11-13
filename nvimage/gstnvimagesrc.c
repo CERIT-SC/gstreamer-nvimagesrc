@@ -52,17 +52,49 @@
 
 #include "gst/glib-compat-private.h"
 
-GST_DEBUG_CATEGORY_STATIC (gst_debug_nvimage_src);
+GST_DEBUG_CATEGORY (gst_debug_nvimage_src);
 #define GST_CAT_DEFAULT gst_debug_nvimage_src
 
 static GstStaticPadTemplate t =
 GST_STATIC_PAD_TEMPLATE ("src", GST_PAD_SRC, GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("video/x-h264, "
+    GST_STATIC_CAPS ("video/x-h264, "  /* H264 */
         "framerate = (fraction) [ 0, MAX ], "
         "width = (int) [ 145, 4096 ], " "height = (int) [ 49, 4095 ], "
-	"stream-format = (string) byte-stream, "
-	"alignment = (string) au, "
-	"profile = (string) { main, high, high-4:4:4, baseline }"));
+        "stream-format = (string) byte-stream, "
+        "alignment = (string) au, "
+        "profile = (string) high; "
+        "video/x-h265, "  /* H265 */
+        "framerate = (fraction) [ 0, MAX ], "
+        "width = (int) [ 145, 4096 ], " "height = (int) [ 49, 4095 ], "
+        "stream-format = (string) byte-stream, "
+        "alignment = (string) au, "
+        "profile = (string) main; "
+        "video/x-av1, "  /* AV1 */
+        "framerate = (fraction) [ 0, MAX ], "
+        "width = (int) [ 192, 4096 ], " "height = (int) [ 128, 4095 ], "
+        "stream-format = (string) obu-stream, "
+        "alignment = (string) tu, "
+        "profile = (string) main; "
+        "video/x-raw, "  /* RAW */
+        "format = (string) BGRx, "
+        "framerate = (fraction) [ 0, MAX ], "
+        "width = (int) [ 145, 4096 ], " "height = (int) [ 49, 4095 ]"));
+
+typedef struct
+{
+        GstNVimageCodec codec;
+        const gchar *media_type;
+        const gchar *stream_format;
+        const gchar *alignment;
+        const gchar *profile;
+        const gchar *name;
+} GstNVimageFormat;
+
+static const GstNVimageFormat formats[] = {
+        { GST_NVIMAGE_CODEC_H264, "video/x-h264", "byte-stream", "au", "high", "H.264" },
+        { GST_NVIMAGE_CODEC_H265, "video/x-h265", "byte-stream", "au", "main", "H.265" },
+        { GST_NVIMAGE_CODEC_AV1,  "video/x-av1",  "obu-stream",  "tu", "main", "AV1" },
+};
 
 enum
 {
@@ -88,9 +120,6 @@ gst_nvimage_src_open_display (GstNVimageSrc * s, const gchar * name)
 
         s->xcontext = nvimageutil_xcontext_get_r (GST_ELEMENT (s), name);
         if (s->xcontext == NULL) {
-                GST_ELEMENT_ERROR (s, RESOURCE, OPEN_READ,
-                                   ("Could not open X display for reading"),
-                                   ("NULL returned from getting xcontext"));
                 return FALSE;
         }
         s->width = s->xcontext->width;
@@ -109,6 +138,14 @@ gst_nvimage_src_start (GstBaseSrc * basesrc)
 
         s->last_frame_no = -1;
         s->frame = 0;
+
+        if (!nvimage_load_libraries ()) {
+                GST_ELEMENT_ERROR (s, LIBRARY, INIT,
+                                   ("NVIDIA driver libraries not found"),
+                                   ("Could not load libnvidia-fbc.so.1 / libnvidia-encode.so.1"));
+                return FALSE;
+        }
+
         return gst_nvimage_src_open_display (s, s->display_name);
 }
 
@@ -223,20 +260,25 @@ gst_nvimage_src_create (GstPushSrc * bs, GstBuffer ** buf)
         s->last_frame_no = next_frame_no;
         GST_OBJECT_UNLOCK (s);
 
-	_keyframe = s->keyframe;
+        _keyframe = g_atomic_int_exchange (&s->keyframe, 0);
 
-        gst_base_src_negotiate (GST_BASE_SRC (s));
-
-        image = gst_nvimageutil_nvimage_new_r(s->xcontext, GST_ELEMENT(s), 
-                                            s->fps_n, s->fps_d, s->bitrate, s->show_pointer, _keyframe, 
+        image = gst_nvimageutil_nvimage_new_r(s->xcontext, GST_ELEMENT(s), s->codec,
+                                            s->fps_n, s->fps_d, s->bitrate, s->show_pointer, _keyframe,
                                             next_frame_no, next_capture_ts);
-
-        if(_keyframe) {
-                s->keyframe = 0;
-        }
 
         if (!image)
                 return GST_FLOW_ERROR;
+
+        if (s->xcontext->width != s->width || s->xcontext->height != s->height) {
+                GST_INFO_OBJECT (s, "Screen size changed to %dx%d",
+                        s->xcontext->width, s->xcontext->height);
+                s->width = s->xcontext->width;
+                s->height = s->xcontext->height;
+                if (!gst_base_src_negotiate (GST_BASE_SRC (s))) {
+                        gst_buffer_unref (image);
+                        return GST_FLOW_NOT_NEGOTIATED;
+                }
+        }
 
         *buf = image;
         GST_BUFFER_DTS (*buf) = GST_CLOCK_TIME_NONE; //pts+s->last_frame_no;
@@ -280,7 +322,7 @@ gst_nvimage_src_set_property (GObject * object, guint prop_id, const GValue * va
                         }
                         break;
                 default:
-                        g_warning("Unknown property %d", prop_id);
+                        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
                         break;
         }
 }
@@ -334,7 +376,9 @@ static GstCaps *
 gst_nvimage_src_get_caps (GstBaseSrc * bs, GstCaps * filter)
 {
         GstNVimageSrc *s = GST_NVIMAGE_SRC (bs);
+        GstCaps *caps;
         gint width, height;
+        guint i;
 
         if ((!s->xcontext) || (!gst_nvimage_src_open_display (s, s->display_name)))
                 return gst_pad_get_pad_template_caps (GST_BASE_SRC (s)->srcpad);
@@ -344,14 +388,37 @@ gst_nvimage_src_get_caps (GstBaseSrc * bs, GstCaps * filter)
 
         GST_DEBUG ("width = %d, height=%d", width, height);
 
-        return gst_caps_new_simple ("video/x-h264",
-                "width", G_TYPE_INT, width,
-                "height", G_TYPE_INT, height,
-                "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
-                "stream-format", G_TYPE_STRING, "byte-stream",
-                "alignment", G_TYPE_STRING, "au",
-                "profile", G_TYPE_STRING, "high",
-                NULL);
+        caps = gst_caps_new_empty ();
+
+        for (i = 0; i < G_N_ELEMENTS (formats); i++) {
+                if (!nvimageutil_codec_supported (s->xcontext, formats[i].codec))
+                        continue;
+
+                gst_caps_append_structure (caps, gst_structure_new (formats[i].media_type,
+                        "width", G_TYPE_INT, width,
+                        "height", G_TYPE_INT, height,
+                        "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
+                        "stream-format", G_TYPE_STRING, formats[i].stream_format,
+                        "alignment", G_TYPE_STRING, formats[i].alignment,
+                        "profile", G_TYPE_STRING, formats[i].profile,
+                        NULL));
+        }
+        if (nvimageutil_codec_supported (s->xcontext, GST_NVIMAGE_CODEC_RAW)) {
+                gst_caps_append_structure (caps, gst_structure_new ("video/x-raw",
+                        "format", G_TYPE_STRING, "BGRx",
+                        "width", G_TYPE_INT, width,
+                        "height", G_TYPE_INT, height,
+                        "framerate", GST_TYPE_FRACTION_RANGE, 1, G_MAXINT, G_MAXINT, 1,
+                        NULL));
+        }
+
+        if (filter) {
+                GstCaps *tmp = gst_caps_intersect_full (filter, caps, GST_CAPS_INTERSECT_FIRST);
+                gst_caps_unref (caps);
+                caps = tmp;
+        }
+
+        return caps;
 }
 
 static gboolean
@@ -360,6 +427,7 @@ gst_nvimage_src_set_caps (GstBaseSrc * bs, GstCaps * caps)
         GstNVimageSrc *s = GST_NVIMAGE_SRC (bs);
         GstStructure *structure;
         const GValue *new_fps;
+        guint i;
 
         /* If not yet opened, disallow setcaps until later */
         if (!s->xcontext)
@@ -376,6 +444,20 @@ gst_nvimage_src_set_caps (GstBaseSrc * bs, GstCaps * caps)
         s->fps_d = gst_value_get_fraction_denominator (new_fps);
 
         GST_DEBUG_OBJECT (s, "peer wants %d/%d fps", s->fps_n, s->fps_d);
+
+        s->codec = GST_NVIMAGE_CODEC_H264;
+        if (gst_structure_has_name (structure, "video/x-raw")) {
+                s->codec = GST_NVIMAGE_CODEC_RAW;
+        } else {
+                for (i = 0; i < G_N_ELEMENTS (formats); i++) {
+                        if (gst_structure_has_name (structure, formats[i].media_type)) {
+                                s->codec = formats[i].codec;
+                                break;
+                        }
+                }
+        }
+
+        GST_DEBUG_OBJECT (s, "negotiated %s", gst_structure_get_name (structure));
 
         return TRUE;
 }
@@ -400,27 +482,54 @@ gst_nvimage_src_fixate (GstBaseSrc * bsrc, GstCaps * caps)
 
 static gboolean
 gst_nvimage_src_event (GstBaseSrc * bsrc, GstEvent * event) {
-        if(event) {
-                const GstStructure *s = gst_event_get_structure(event);
-                GstNVimageSrc *nvs = GST_NVIMAGE_SRC (bsrc);
-                if(s && s->name) {
-                        const char *p = g_quark_to_string(s->name);
-                        if(p) {
-				if(strcmp(g_quark_to_string(s->name), "RTPTWCCPackets") == 0) {
-					return TRUE;
-				}
-                                g_warning("got event: %d, subtype: %s", event->type, g_quark_to_string(s->name));
+        GstNVimageSrc *nvs = GST_NVIMAGE_SRC (bsrc);
 
-                                if (event->type == GST_EVENT_CUSTOM_UPSTREAM) {
-                                        if (gst_structure_has_name (s, "GstForceKeyUnit") && nvs) {
-                                                g_warning("Forcing keyframe");
-                                                nvs->keyframe = 1;
-                                        }
-                                }
-                        }
+        if (gst_video_event_is_force_key_unit (event)) {
+                GST_DEBUG_OBJECT (nvs, "Forcing keyframe");
+                g_atomic_int_set (&nvs->keyframe, 1);
+                return TRUE;
+        }
+        return GST_BASE_SRC_CLASS (parent_class)->event (bsrc, event);
+}
+
+static void
+gst_nvimage_src_report_unsupported_codec (GstNVimageSrc * s)
+{
+        GstCaps *peercaps;
+        guint i;
+
+        if (!s->xcontext)
+                return;
+
+        peercaps = gst_pad_peer_query_caps (GST_BASE_SRC_PAD (s), NULL);
+        if (!peercaps)
+                return;
+
+        for (i = 0; i < G_N_ELEMENTS (formats); i++) {
+                GstCaps *codec_caps = gst_caps_new_empty_simple (formats[i].media_type);
+                gboolean wanted = gst_caps_can_intersect (peercaps, codec_caps);
+
+                gst_caps_unref (codec_caps);
+
+                if (wanted && !nvimageutil_codec_supported (s->xcontext, formats[i].codec)) {
+                        GST_ELEMENT_ERROR (s, STREAM, FORMAT,
+                                ("%s encoding is not supported by this GPU", formats[i].name),
+                                ("Downstream accepts %" GST_PTR_FORMAT, peercaps));
+                        break;
                 }
         }
-        return TRUE;
+
+        gst_caps_unref (peercaps);
+}
+
+static gboolean
+gst_nvimage_src_negotiate (GstBaseSrc * bsrc)
+{
+        if (GST_BASE_SRC_CLASS (parent_class)->negotiate (bsrc))
+                return TRUE;
+
+        gst_nvimage_src_report_unsupported_codec (GST_NVIMAGE_SRC (bsrc));
+        return FALSE;
 }
 
 static void
@@ -455,7 +564,7 @@ gst_nvimage_src_class_init (GstNVimageSrcClass * klass)
 
         gst_element_class_set_static_metadata (ec, "NVimage video source",
                                               "Source/Video",
-                                              "Creates a screenshot video stream to h264",
+                                              "Creates a screenshot video stream as raw, H.264, H.265 or AV1 video",
                                               "Lukas Hejtmanek <xhejtman@gmail.com>");
         gst_element_class_add_static_pad_template (ec, &t);
 
@@ -466,6 +575,7 @@ gst_nvimage_src_class_init (GstNVimageSrcClass * klass)
         bc->stop = gst_nvimage_src_stop;
         bc->unlock = gst_nvimage_src_unlock;
         bc->event = gst_nvimage_src_event;
+        bc->negotiate = gst_nvimage_src_negotiate;
         push_class->create = gst_nvimage_src_create;
 }
 
@@ -475,6 +585,7 @@ gst_nvimage_src_init (GstNVimageSrc * nvimagesrc)
         gst_base_src_set_format (GST_BASE_SRC (nvimagesrc), GST_FORMAT_TIME);
         gst_base_src_set_live (GST_BASE_SRC (nvimagesrc), TRUE);
 
+        nvimagesrc->codec = GST_NVIMAGE_CODEC_H264;
         nvimagesrc->show_pointer = TRUE;
         nvimagesrc->bitrate = 2000000;
         nvimagesrc->keyframe = TRUE;
