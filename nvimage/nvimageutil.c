@@ -858,8 +858,7 @@ gst_nvimagesrc_buffer_dispose (GstBuffer * nvimage)
 
         gst_object_unref (meta->parent);
         meta->parent = NULL;
-
-        g_free(meta->data);
+        
         meta->data = NULL;
         meta->size = 0;
         return ret;
@@ -1010,8 +1009,8 @@ restart:
         }
 
 wrap:
-        gst_buffer_append_memory (nvimage, gst_memory_new_wrapped (GST_MEMORY_FLAG_NO_SHARE, meta->data,
-                                        meta->size, 0, meta->size, NULL, NULL));
+        gst_buffer_append_memory (nvimage, gst_memory_new_wrapped (0, meta->data,
+                                        meta->size, 0, meta->size, meta->data, g_free));
 
         /* Keep a ref to our src */
         meta->parent = gst_object_ref (parent);
